@@ -2,4 +2,3 @@ streamlit
 networkx
 pyvis
 firebase-admin
-streamlit-components-v1
