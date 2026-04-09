@@ -112,8 +112,7 @@ def build_graph_html(people, connections, image_urls, project_id):
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#06091e;overflow:hidden;font-family:sans-serif;touch-action:none}}
-svg{{width:100vw;height:100vh;display:block;cursor:grab}}
-svg:active{{cursor:grabbing}}
+svg{{width:100vw;height:100vh;display:block}}
 .n-name{{fill:#a0c8ff;font-size:11px;text-anchor:middle;pointer-events:none}}
 .n-init{{fill:#6090e0;font-size:15px;font-weight:500;text-anchor:middle;dominant-baseline:middle;pointer-events:none}}
 </style>
@@ -126,14 +125,19 @@ const data = {data_json};
 const PROJECT_ID = "{project_id}";
 const FS_URL = `https://firestore.googleapis.com/v1/projects/${{PROJECT_ID}}/databases/(default)/documents/positions/friends`;
 const W = window.innerWidth, H = window.innerHeight;
-const svg = d3.select("#g").attr("viewBox",[0,0,W,H]);
+const svgEl = document.getElementById("g");
+const svg = d3.select(svgEl).attr("viewBox",[0,0,W,H]);
 const defs = svg.append("defs");
 const container = svg.append("g").attr("id","container");
 
+let currentTransform = d3.zoomIdentity;
+
 const zoom = d3.zoom()
   .scaleExtent([0.05,10])
-  .filter(e=>e.target.closest("circle")==null&&e.target.closest("text")==null)
-  .on("zoom",(e)=>{{ container.attr("transform",e.transform); }});
+  .on("zoom",(e)=>{{
+    currentTransform = e.transform;
+    container.attr("transform", e.transform);
+  }});
 svg.call(zoom).on("dblclick.zoom",null);
 
 async function loadPositions(){{
@@ -218,90 +222,90 @@ function drawIcon(g,shape,color){{
   }}
 }}
 
-const sim=d3.forceSimulation(data.nodes)
-  .force("link",d3.forceLink(data.links).id(d=>d.id).distance(180))
-  .force("charge",d3.forceManyBody().strength(-320))
-  .force("center",d3.forceCenter(W/2,H/2))
-  .force("collision",d3.forceCollide().radius(55))
+const sim = d3.forceSimulation(data.nodes)
+  .force("link", d3.forceLink(data.links).id(d=>d.id).distance(180))
+  .force("charge", d3.forceManyBody().strength(-320))
+  .force("center", d3.forceCenter(W/2, H/2))
+  .force("collision", d3.forceCollide().radius(55))
   .stop();
 
-const eGrp=container.append("g"),iGrp=container.append("g"),nGrp=container.append("g");
+const eGrp=container.append("g"), iGrp=container.append("g"), nGrp=container.append("g");
 
-const edges=eGrp.selectAll("line").data(data.links).join("line")
-  .attr("stroke",d=>d.color).attr("stroke-width",2).attr("stroke-opacity",0.6);
+const edges = eGrp.selectAll("line").data(data.links).join("line")
+  .attr("stroke", d=>d.color).attr("stroke-width", 2).attr("stroke-opacity", 0.6);
 
-const icons=iGrp.selectAll("g").data(data.links).join("g");
-icons.each(function(d){{drawIcon(d3.select(this),d.shape,d.color)}});
+const icons = iGrp.selectAll("g").data(data.links).join("g");
+icons.each(function(d){{ drawIcon(d3.select(this), d.shape, d.color); }});
 
-const drag=d3.drag()
-  .on("start",(e)=>{{
+const drag = d3.drag()
+  .on("start", (e) => {{
     e.sourceEvent.stopPropagation();
-    const p=d3.pointer(e.sourceEvent,container.node());
-    e.subject.fx=p[0];
-    e.subject.fy=p[1];
+    e.sourceEvent.preventDefault();
   }})
-  .on("drag",(e)=>{{
-    const p=d3.pointer(e.sourceEvent,container.node());
-    e.subject.fx=p[0];
-    e.subject.fy=p[1];
+  .on("drag", (e) => {{
+    const [mx, my] = d3.pointer(e.sourceEvent, svgEl);
+    const [x, y] = currentTransform.invert([mx, my]);
+    e.subject.fx = x;
+    e.subject.fy = y;
     tick();
   }})
-  .on("end",()=>{{ savePositions(); }});
+  .on("end", () => {{ savePositions(); }});
 
-const nodes=nGrp.selectAll("g").data(data.nodes).join("g").call(drag);
+const nodes = nGrp.selectAll("g").data(data.nodes).join("g").call(drag)
+  .style("cursor", "grab");
 
-nodes.append("circle").attr("r",33).attr("fill","none").attr("stroke","#1e3a80").attr("stroke-width",1.5).attr("opacity",0.6);
+nodes.append("circle").attr("r", 33).attr("fill","none").attr("stroke","#1e3a80").attr("stroke-width",1.5).attr("opacity",0.6);
 
-nodes.each(function(d){{
-  const g=d3.select(this);
-  const sid=d.id.replace(/[^a-zA-Z0-9]/g,"-");
-  if(d.image){{
+nodes.each(function(d) {{
+  const g = d3.select(this);
+  const sid = d.id.replace(/[^a-zA-Z0-9]/g, "-");
+  if(d.image) {{
     g.append("circle").attr("r",28).attr("fill",`url(#img-${{sid}})`).attr("stroke","#4a78c8").attr("stroke-width",2.5).attr("clip-path",`url(#clip-${{sid}})`);
-  }}else{{
+  }} else {{
     g.append("circle").attr("r",28).attr("fill","#0e1c52").attr("stroke","#4a78c8").attr("stroke-width",2.5);
     g.append("text").attr("class","n-init").attr("dy","0.1em")
       .text(d.id.split(" ").map(w=>w[0]||"").join("").toUpperCase().slice(0,2));
   }}
   g.append("text").attr("class","n-name").attr("y",45)
-    .text(d.id.length>14?d.id.slice(0,13)+"…":d.id);
+    .text(d.id.length>14 ? d.id.slice(0,13)+"…" : d.id);
 }});
 
-function tick(){{
+function tick() {{
   edges.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
        .attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
   icons.attr("transform",d=>`translate(${{(d.source.x+d.target.x)/2}},${{(d.source.y+d.target.y)/2}})`);
   nodes.attr("transform",d=>`translate(${{d.x}},${{d.y}})`);
 }}
 
-async function init(){{
+async function init() {{
   const savedPos = await loadPositions();
   const hasSaved = Object.keys(savedPos).length > 0;
-  if(hasSaved){{
-    data.nodes.forEach(n=>{{
-      if(savedPos[n.id]){{
+  if(hasSaved) {{
+    data.nodes.forEach(n => {{
+      if(savedPos[n.id]) {{
         n.x = n.fx = savedPos[n.id].x;
         n.y = n.fy = savedPos[n.id].y;
-      }}else{{
+      }} else {{
         n.x = n.fx = W/2 + (Math.random()-0.5)*200;
         n.y = n.fy = H/2 + (Math.random()-0.5)*200;
       }}
     }});
     tick();
-  }}else{{
+  }} else {{
     sim.on("tick", tick);
     sim.alpha(1).restart();
-    setTimeout(()=>{{
-      data.nodes.forEach(n=>{{ n.fx=n.x; n.fy=n.y; }});
+    setTimeout(() => {{
+      data.nodes.forEach(n => {{ n.fx=n.x; n.fy=n.y; }});
       sim.stop();
       savePositions();
-    }},2500);
+    }}, 2500);
   }}
 }}
 
 init();
 
-window.addEventListener("resize",()=>{{
-  const nw=window.innerWidth,nh=window.innerHeight;
+window.addEventListener("resize", () => {{
+  const nw=window.innerWidth, nh=window.innerHeight;
   svg.attr("viewBox",[0,0,nw,nh]);
 }});
 </script>
