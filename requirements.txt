@@ -1,4 +1,2 @@
 streamlit
-networkx
-pyvis
 firebase-admin
