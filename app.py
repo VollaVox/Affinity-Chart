@@ -18,7 +18,6 @@ st.markdown("""
 }
 .stButton > button:hover { background: #1a2e70; border-color: #4a78c8; color: #c0d8ff; }
 .stTextInput input { background: #080e28 !important; color: #c0d8ff !important; border-color: #2a4890 !important; }
-.stRadio label, .stRadio > div { color: #80a8e8 !important; }
 .stTabs [data-baseweb="tab"] { color: #5080c0; }
 .stTabs [aria-selected="true"] { color: #80b8f8 !important; border-bottom-color: #4a78c8 !important; }
 h1, h2, h3 { color: #80b8f8 !important; font-family: monospace; letter-spacing: 2px; }
@@ -39,20 +38,24 @@ def init_firebase():
 
 db, bucket = init_firebase()
 
-def load_data(graph_type):
-    col = graph_type.lower()
-    p = db.collection(col).document("people").get()
-    c = db.collection(col).document("connections").get()
+creds_dict = json.loads(st.secrets["firebase"]["credentials"])
+project_id = creds_dict["project_id"]
+
+GRAPH_TYPE = "friends"
+
+def load_data():
+    p = db.collection(GRAPH_TYPE).document("people").get()
+    c = db.collection(GRAPH_TYPE).document("connections").get()
     return (
         p.to_dict().get("list", []) if p.exists else [],
         c.to_dict().get("list", []) if c.exists else []
     )
 
-def save_people(graph_type, people):
-    db.collection(graph_type.lower()).document("people").set({"list": people})
+def save_people(people):
+    db.collection(GRAPH_TYPE).document("people").set({"list": people})
 
-def save_connections(graph_type, connections):
-    db.collection(graph_type.lower()).document("connections").set({"list": connections})
+def save_connections(connections):
+    db.collection(GRAPH_TYPE).document("connections").set({"list": connections})
 
 def upload_to_storage(data, path, content_type):
     blob = bucket.blob(path)
@@ -74,7 +77,6 @@ def get_settings():
 def save_settings(settings):
     db.collection("settings").document("preferences").set(settings)
 
-# Cache stable values in session state so audio HTML never changes during normal use
 if 'music_url' not in st.session_state:
     st.session_state['music_url'] = get_storage_url("music/refugee_camp.mp3")
 if 'autoplay' not in st.session_state:
@@ -91,7 +93,7 @@ REL_TYPES = {
     "Don't speak":     {"color": "#d02020", "shape": "triangle"},
 }
 
-def build_graph_html(people, connections, image_urls):
+def build_graph_html(people, connections, image_urls, project_id):
     nodes = [{"id": p, "image": image_urls.get(p, "")} for p in people]
     links = []
     for conn in connections:
@@ -121,16 +123,38 @@ svg:active{{cursor:grabbing}}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <script>
 const data = {data_json};
+const PROJECT_ID = "{project_id}";
+const FS_URL = `https://firestore.googleapis.com/v1/projects/${{PROJECT_ID}}/databases/(default)/documents/positions/friends`;
 const W = window.innerWidth, H = window.innerHeight;
 const svg = d3.select("#g").attr("viewBox",[0,0,W,H]);
 const defs = svg.append("defs");
-
 const container = svg.append("g").attr("id","container");
 
 const zoom = d3.zoom()
   .scaleExtent([0.05,10])
   .on("zoom",(e)=>{{ container.attr("transform",e.transform); }});
 svg.call(zoom).on("dblclick.zoom",null);
+
+async function loadPositions(){{
+  try{{
+    const res = await fetch(FS_URL);
+    if(!res.ok) return {{}};
+    const doc = await res.json();
+    return JSON.parse(doc.fields?.data?.stringValue || "{{}}");
+  }}catch(e){{ return {{}}; }}
+}}
+
+async function savePositions(){{
+  const pos = {{}};
+  data.nodes.forEach(n=>{{ pos[n.id] = {{x: n.fx??n.x, y: n.fy??n.y}}; }});
+  try{{
+    await fetch(FS_URL+"?updateMask.fieldPaths=data", {{
+      method:"PATCH",
+      headers:{{"Content-Type":"application/json"}},
+      body: JSON.stringify({{fields:{{data:{{stringValue:JSON.stringify(pos)}}}}}})
+    }});
+  }}catch(e){{}}
+}}
 
 data.nodes.forEach(n=>{{
   const sid=n.id.replace(/[^a-zA-Z0-9]/g,"-");
@@ -148,62 +172,57 @@ data.nodes.forEach(n=>{{
 }});
 
 function drawIcon(g,shape,color){{
-    const s=16, dc="#06091e";
-    if(shape==="pentagon"){{
-      const pts=[...Array(5)].map((_,i)=>{{const a=(i*72-90)*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
-      g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
-      g.append("rect").attr("x",-s*0.55).attr("y",-s*0.15).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
-      g.append("rect").attr("x",s*0.175).attr("y",-s*0.15).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
-      g.append("rect").attr("x",-s*0.45).attr("y",s*0.375).attr("width",s*0.9).attr("height",s*0.22).attr("fill",dc).attr("rx",0.8);
-    }}else if(shape==="square"){{
-      g.append("rect").attr("x",-s).attr("y",-s).attr("width",s*2).attr("height",s*2).attr("fill",color).attr("stroke",dc).attr("stroke-width",2).attr("rx",2.4);
-      g.append("rect").attr("x",-s*0.55).attr("y",-s*0.22).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
-      g.append("rect").attr("x",s*0.175).attr("y",-s*0.22).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
-      g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.3}} Q 0 ${{s*0.72}} ${{s*0.52}} ${{s*0.3}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
-    }}else if(shape==="circle"){{
-      g.append("circle").attr("r",s).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
-      g.append("rect").attr("x",-s*0.55).attr("y",-s*0.22).attr("width",s*0.4).attr("height",s*0.4).attr("fill",dc).attr("rx",0.8);
-      g.append("rect").attr("x",s*0.15).attr("y",-s*0.22).attr("width",s*0.4).attr("height",s*0.4).attr("fill",dc).attr("rx",0.8);
-      g.append("path").attr("d",`M ${{-s*0.55}} ${{s*0.28}} Q 0 ${{s*0.72}} ${{s*0.55}} ${{s*0.28}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.14).attr("stroke-linecap","round");
-    }}else if(shape==="hexagon"){{
-      const pts=[...Array(6)].map((_,i)=>{{const a=i*60*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
-      g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
-      g.append("path").attr("d",`M ${{-s*0.58}} ${{-s*0.12}} Q ${{-s*0.34}} ${{-s*0.5}} ${{-s*0.11}} ${{-s*0.12}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
-      g.append("path").attr("d",`M ${{s*0.11}} ${{-s*0.12}} Q ${{s*0.34}} ${{-s*0.5}} ${{s*0.58}} ${{-s*0.12}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
-      g.append("path").attr("d",`M ${{-s*0.58}} ${{s*0.28}} Q 0 ${{s*0.72}} ${{s*0.58}} ${{s*0.28}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.15).attr("stroke-linecap","round");
-    }}else if(shape==="heart_rel"||shape==="heart_married"){{
-      g.append("path").attr("d",`M 0 ${{s*0.625}} C ${{-s}} 0 ${{-s*1.25}} ${{-s*0.625}} ${{-s*0.594}} ${{-s*0.906}} C ${{-s*0.25}} ${{-s*1.0625}} 0 ${{-s*0.6875}} 0 ${{-s*0.5625}} C 0 ${{-s*0.6875}} ${{s*0.25}} ${{-s*1.0625}} ${{s*0.594}} ${{-s*0.906}} C ${{s*1.25}} ${{-s*0.625}} ${{s}} 0 0 ${{s*0.625}} Z`).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
-      if(shape==="heart_married"){{
-        [[-s*0.36,-s*0.09],[s*0.36,-s*0.09]].forEach(([hx,hy])=>{{
-          const hs=s*0.42;
-          g.append("path").attr("d",`M ${{hx}} ${{hy+hs*0.625}} C ${{hx-hs}} ${{hy}} ${{hx-hs*1.25}} ${{hy-hs*0.625}} ${{hx-hs*0.594}} ${{hy-hs*0.906}} C ${{hx-hs*0.25}} ${{hy-hs*1.0625}} ${{hx}} ${{hy-hs*0.6875}} ${{hx}} ${{hy-hs*0.5625}} C ${{hx}} ${{hy-hs*0.6875}} ${{hx+hs*0.25}} ${{hy-hs*1.0625}} ${{hx+hs*0.594}} ${{hy-hs*0.906}} C ${{hx+hs*1.25}} ${{hy-hs*0.625}} ${{hx+hs}} ${{hy}} ${{hx}} ${{hy+hs*0.625}} Z`).attr("fill",dc);
-        }});
-        g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.03}} Q 0 ${{s*0.39}} ${{s*0.52}} ${{s*0.03}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
-      }}else{{
-        g.append("rect").attr("x",-s*0.55).attr("y",-s*0.44).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
-        g.append("rect").attr("x",s*0.175).attr("y",-s*0.44).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
-        g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.03}} Q 0 ${{s*0.39}} ${{s*0.52}} ${{s*0.03}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
-      }}
-    }}else if(shape==="triangle"){{
-      const h=s*1.2;
-      g.append("polygon").attr("points",`0,${{-h}} ${{h}},${{h*0.7}} ${{-h}},${{h*0.7}}`).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
-      g.append("rect").attr("x",-s*0.58).attr("y",-s*0.19).attr("width",s*0.375).attr("height",s*0.31).attr("fill",dc).attr("rx",0.8).attr("transform","rotate(-18)");
-      g.append("rect").attr("x",s*0.2).attr("y",-s*0.19).attr("width",s*0.375).attr("height",s*0.31).attr("fill",dc).attr("rx",0.8).attr("transform","rotate(18)");
-      g.append("path").attr("d",`M ${{-s*0.55}} ${{s*0.5}} Q 0 ${{s*0.125}} ${{s*0.55}} ${{s*0.5}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
+  const s=16, dc="#06091e";
+  if(shape==="pentagon"){{
+    const pts=[...Array(5)].map((_,i)=>{{const a=(i*72-90)*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
+    g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+    g.append("rect").attr("x",-s*0.55).attr("y",-s*0.15).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+    g.append("rect").attr("x",s*0.175).attr("y",-s*0.15).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+    g.append("rect").attr("x",-s*0.45).attr("y",s*0.375).attr("width",s*0.9).attr("height",s*0.22).attr("fill",dc).attr("rx",0.8);
+  }}else if(shape==="square"){{
+    g.append("rect").attr("x",-s).attr("y",-s).attr("width",s*2).attr("height",s*2).attr("fill",color).attr("stroke",dc).attr("stroke-width",2).attr("rx",2.4);
+    g.append("rect").attr("x",-s*0.55).attr("y",-s*0.22).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+    g.append("rect").attr("x",s*0.175).attr("y",-s*0.22).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+    g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.3}} Q 0 ${{s*0.72}} ${{s*0.52}} ${{s*0.3}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
+  }}else if(shape==="circle"){{
+    g.append("circle").attr("r",s).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+    g.append("rect").attr("x",-s*0.55).attr("y",-s*0.22).attr("width",s*0.4).attr("height",s*0.4).attr("fill",dc).attr("rx",0.8);
+    g.append("rect").attr("x",s*0.15).attr("y",-s*0.22).attr("width",s*0.4).attr("height",s*0.4).attr("fill",dc).attr("rx",0.8);
+    g.append("path").attr("d",`M ${{-s*0.55}} ${{s*0.28}} Q 0 ${{s*0.72}} ${{s*0.55}} ${{s*0.28}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.14).attr("stroke-linecap","round");
+  }}else if(shape==="hexagon"){{
+    const pts=[...Array(6)].map((_,i)=>{{const a=i*60*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
+    g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+    g.append("path").attr("d",`M ${{-s*0.58}} ${{-s*0.12}} Q ${{-s*0.34}} ${{-s*0.5}} ${{-s*0.11}} ${{-s*0.12}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
+    g.append("path").attr("d",`M ${{s*0.11}} ${{-s*0.12}} Q ${{s*0.34}} ${{-s*0.5}} ${{s*0.58}} ${{-s*0.12}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
+    g.append("path").attr("d",`M ${{-s*0.58}} ${{s*0.28}} Q 0 ${{s*0.72}} ${{s*0.58}} ${{s*0.28}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.15).attr("stroke-linecap","round");
+  }}else if(shape==="heart_rel"||shape==="heart_married"){{
+    g.append("path").attr("d",`M 0 ${{s*0.625}} C ${{-s}} 0 ${{-s*1.25}} ${{-s*0.625}} ${{-s*0.594}} ${{-s*0.906}} C ${{-s*0.25}} ${{-s*1.0625}} 0 ${{-s*0.6875}} 0 ${{-s*0.5625}} C 0 ${{-s*0.6875}} ${{s*0.25}} ${{-s*1.0625}} ${{s*0.594}} ${{-s*0.906}} C ${{s*1.25}} ${{-s*0.625}} ${{s}} 0 0 ${{s*0.625}} Z`).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+    if(shape==="heart_married"){{
+      [[-s*0.36,-s*0.09],[s*0.36,-s*0.09]].forEach(([hx,hy])=>{{
+        const hs=s*0.42;
+        g.append("path").attr("d",`M ${{hx}} ${{hy+hs*0.625}} C ${{hx-hs}} ${{hy}} ${{hx-hs*1.25}} ${{hy-hs*0.625}} ${{hx-hs*0.594}} ${{hy-hs*0.906}} C ${{hx-hs*0.25}} ${{hy-hs*1.0625}} ${{hx}} ${{hy-hs*0.6875}} ${{hx}} ${{hy-hs*0.5625}} C ${{hx}} ${{hy-hs*0.6875}} ${{hx+hs*0.25}} ${{hy-hs*1.0625}} ${{hx+hs*0.594}} ${{hy-hs*0.906}} C ${{hx+hs*1.25}} ${{hy-hs*0.625}} ${{hx+hs}} ${{hy}} ${{hx}} ${{hy+hs*0.625}} Z`).attr("fill",dc);
+      }});
+      g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.03}} Q 0 ${{s*0.39}} ${{s*0.52}} ${{s*0.03}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
+    }}else{{
+      g.append("rect").attr("x",-s*0.55).attr("y",-s*0.44).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+      g.append("rect").attr("x",s*0.175).attr("y",-s*0.44).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+      g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.03}} Q 0 ${{s*0.39}} ${{s*0.52}} ${{s*0.03}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
     }}
+  }}else if(shape==="triangle"){{
+    const h=s*1.2;
+    g.append("polygon").attr("points",`0,${{-h}} ${{h}},${{h*0.7}} ${{-h}},${{h*0.7}}`).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+    g.append("rect").attr("x",-s*0.58).attr("y",-s*0.19).attr("width",s*0.375).attr("height",s*0.31).attr("fill",dc).attr("rx",0.8).attr("transform","rotate(-18)");
+    g.append("rect").attr("x",s*0.2).attr("y",-s*0.19).attr("width",s*0.375).attr("height",s*0.31).attr("fill",dc).attr("rx",0.8).attr("transform","rotate(18)");
+    g.append("path").attr("d",`M ${{-s*0.55}} ${{s*0.5}} Q 0 ${{s*0.125}} ${{s*0.55}} ${{s*0.5}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
   }}
+}}
 
 const sim=d3.forceSimulation(data.nodes)
   .force("link",d3.forceLink(data.links).id(d=>d.id).distance(180))
   .force("charge",d3.forceManyBody().strength(-320))
   .force("center",d3.forceCenter(W/2,H/2))
-  .force("collision",d3.forceCollide().radius(55));
-
-// After initial layout, pin all nodes and stop simulation
-setTimeout(()=>{{
-  data.nodes.forEach(n=>{{ if(n.fx==null){{ n.fx=n.x; n.fy=n.y; }} }});
-  sim.alphaTarget(0).stop();
-}},2500);
+  .force("collision",d3.forceCollide().radius(55))
+  .stop();
 
 const eGrp=container.append("g"),iGrp=container.append("g"),nGrp=container.append("g");
 
@@ -216,18 +235,15 @@ icons.each(function(d){{drawIcon(d3.select(this),d.shape,d.color)}});
 const drag=d3.drag()
   .on("start",(e)=>{{
     e.sourceEvent.stopPropagation();
-    if(!e.active) sim.alphaTarget(0.1).restart();
     e.subject.fx=e.subject.x;
     e.subject.fy=e.subject.y;
   }})
   .on("drag",(e)=>{{
     e.subject.fx=e.x;
     e.subject.fy=e.y;
+    tick();
   }})
-  .on("end",(e)=>{{
-    if(!e.active) sim.alphaTarget(0);
-    // fx/fy intentionally kept — node stays where dropped
-  }});
+  .on("end",()=>{{ savePositions(); }});
 
 const nodes=nGrp.selectAll("g").data(data.nodes).join("g").call(drag);
 
@@ -247,12 +263,39 @@ nodes.each(function(d){{
     .text(d.id.length>14?d.id.slice(0,13)+"…":d.id);
 }});
 
-sim.on("tick",()=>{{
+function tick(){{
   edges.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
        .attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
   icons.attr("transform",d=>`translate(${{(d.source.x+d.target.x)/2}},${{(d.source.y+d.target.y)/2}})`);
   nodes.attr("transform",d=>`translate(${{d.x}},${{d.y}})`);
-}});
+}}
+
+async function init(){{
+  const savedPos = await loadPositions();
+  const hasSaved = Object.keys(savedPos).length > 0;
+  if(hasSaved){{
+    data.nodes.forEach(n=>{{
+      if(savedPos[n.id]){{
+        n.x = n.fx = savedPos[n.id].x;
+        n.y = n.fy = savedPos[n.id].y;
+      }}else{{
+        n.x = n.fx = W/2 + (Math.random()-0.5)*200;
+        n.y = n.fy = H/2 + (Math.random()-0.5)*200;
+      }}
+    }});
+    tick();
+  }}else{{
+    sim.on("tick", tick);
+    sim.alpha(1).restart();
+    setTimeout(()=>{{
+      data.nodes.forEach(n=>{{ n.fx=n.x; n.fy=n.y; }});
+      sim.stop();
+      savePositions();
+    }},2500);
+  }}
+}}
+
+init();
 
 window.addEventListener("resize",()=>{{
   const nw=window.innerWidth,nh=window.innerHeight;
@@ -263,8 +306,6 @@ window.addEventListener("resize",()=>{{
 </html>"""
 
 # ── UI ─────────────────────────────────────────────────────────────────────────
-
-# Audio player — lives in its own separate component so it never reloads on graph changes
 music_url = st.session_state['music_url']
 autoplay = st.session_state['autoplay']
 if music_url:
@@ -282,22 +323,17 @@ button:hover{{background:#1a2e70;color:#c0d8ff}}
 <button onclick="var a=document.getElementById('a');a.muted=!a.muted;this.textContent=a.muted?'UNMUTE':'MUTE'">MUTE</button>"""
     components.html(audio_html, height=44)
 
-c1, c2 = st.columns([2, 8])
-with c1:
-    graph_type = st.radio("", ["Friends", "Family"], horizontal=True, label_visibility="collapsed")
-with c2:
-    st.markdown("<h2 style='padding-top:0.4rem;text-align:center'>⬡ AFFINITY CHART</h2>", unsafe_allow_html=True)
-
+st.markdown("<h2 style='padding-top:0.4rem;text-align:center'>⬡ AFFINITY CHART</h2>", unsafe_allow_html=True)
 st.markdown("<hr style='margin:0.4rem 0'>", unsafe_allow_html=True)
 
-people, connections = load_data(graph_type)
+people, connections = load_data()
 image_urls = {}
 for person in people:
-    url = get_storage_url(f"{graph_type.lower()}/images/{person}")
+    url = get_storage_url(f"friends/images/{person}")
     if url:
         image_urls[person] = url
 
-components.html(build_graph_html(people, connections, image_urls), height=520, scrolling=False)
+components.html(build_graph_html(people, connections, image_urls, project_id), height=520, scrolling=False)
 
 st.markdown("<hr style='margin:0.4rem 0'>", unsafe_allow_html=True)
 
@@ -313,9 +349,9 @@ with tab1:
         if st.button("➕ Add Person", use_container_width=True):
             if new_name and new_name not in people:
                 people.append(new_name)
-                save_people(graph_type, people)
+                save_people(people)
                 if img_file:
-                    upload_to_storage(img_file.read(), f"{graph_type.lower()}/images/{new_name}", img_file.type)
+                    upload_to_storage(img_file.read(), f"friends/images/{new_name}", img_file.type)
                 st.rerun()
             elif new_name in people:
                 st.warning("Already added!")
@@ -325,13 +361,13 @@ with tab1:
         r1.write(person)
         img_upd = r2.file_uploader("", type=["jpg","jpeg","png"], key=f"upd_{i}", label_visibility="collapsed")
         if img_upd:
-            upload_to_storage(img_upd.read(), f"{graph_type.lower()}/images/{person}", img_upd.type)
+            upload_to_storage(img_upd.read(), f"friends/images/{person}", img_upd.type)
             st.rerun()
         if r3.button("✕", key=f"del_{i}"):
             people.remove(person)
             connections = [c for c in connections if c["from"] != person and c["to"] != person]
-            save_people(graph_type, people)
-            save_connections(graph_type, connections)
+            save_people(people)
+            save_connections(connections)
             st.rerun()
 
 with tab2:
@@ -348,7 +384,7 @@ with tab2:
             )
             if not exists:
                 connections.append({"from": person_a, "to": person_b, "relationship": relationship})
-                save_connections(graph_type, connections)
+                save_connections(connections)
                 st.rerun()
             else:
                 st.warning("Connection already exists!")
@@ -358,7 +394,7 @@ with tab2:
             ca.markdown(f"{conn['from']} ↔ {conn['to']} — *{conn.get('relationship','')}*")
             if cb.button("✕", key=f"dc_{i}"):
                 connections.pop(i)
-                save_connections(graph_type, connections)
+                save_connections(connections)
                 st.rerun()
     else:
         st.info("Add at least 2 people first!")
