@@ -63,8 +63,23 @@ def upload_to_storage(data, path, content_type):
 def get_storage_url(path):
     blob = bucket.blob(path)
     if blob.exists():
+        blob.make_public()
         return blob.public_url
     return None
+
+def get_settings():
+    ref = db.collection("settings").document("preferences").get()
+    return ref.to_dict() if ref.exists else {"autoplay": False}
+
+def save_settings(settings):
+    db.collection("settings").document("preferences").set(settings)
+
+# Cache stable values in session state so audio HTML never changes during normal use
+if 'music_url' not in st.session_state:
+    st.session_state['music_url'] = get_storage_url("music/refugee_camp.mp3")
+if 'autoplay' not in st.session_state:
+    prefs = get_settings()
+    st.session_state['autoplay'] = prefs.get('autoplay', False)
 
 REL_TYPES = {
     "Know each other": {"color": "#C8A020", "shape": "pentagon"},
@@ -76,7 +91,7 @@ REL_TYPES = {
     "Don't speak":     {"color": "#d02020", "shape": "triangle"},
 }
 
-def build_graph_html(people, connections, image_urls, music_url):
+def build_graph_html(people, connections, image_urls):
     nodes = [{"id": p, "image": image_urls.get(p, "")} for p in people]
     links = []
     for conn in connections:
@@ -87,7 +102,6 @@ def build_graph_html(people, connections, image_urls, music_url):
             "relationship": rel, "color": cfg["color"], "shape": cfg["shape"],
         })
     data_json = json.dumps({"nodes": nodes, "links": links})
-    music_tag = f'<audio id="audio" loop src="{music_url}"></audio>' if music_url else ""
 
     return f"""<!DOCTYPE html>
 <html>
@@ -95,23 +109,14 @@ def build_graph_html(people, connections, image_urls, music_url):
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#06091e;overflow:hidden;font-family:sans-serif}}
-svg{{width:100vw;height:100vh;display:block}}
+body{{background:#06091e;overflow:hidden;font-family:sans-serif;touch-action:none}}
+svg{{width:100vw;height:100vh;display:block;cursor:grab}}
+svg:active{{cursor:grabbing}}
 .n-name{{fill:#a0c8ff;font-size:11px;text-anchor:middle;pointer-events:none}}
 .n-init{{fill:#6090e0;font-size:15px;font-weight:500;text-anchor:middle;dominant-baseline:middle;pointer-events:none}}
-#bar{{position:fixed;bottom:12px;right:12px;background:#080e28;border:1px solid #2a4890;border-radius:6px;padding:8px 14px;display:flex;align-items:center;gap:10px;z-index:100}}
-#play-btn,#mute-btn{{background:#0e1c52;border:1px solid #2a4890;color:#80a8e8;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;letter-spacing:1px}}
-#play-btn:hover,#mute-btn:hover{{background:#1a2e70;color:#c0d8ff}}
-#bar-label{{color:#5070a8;font-size:10px;letter-spacing:1px}}
 </style>
 </head>
 <body>
-{music_tag}
-<div id="bar">
-  <span id="bar-label">♪ IN THE REFUGEE CAMP</span>
-  <button id="play-btn" onclick="togglePlay()">PLAY</button>
-  <button id="mute-btn" onclick="toggleMute()">MUTE</button>
-</div>
 <svg id="g"></svg>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <script>
@@ -120,21 +125,12 @@ const W = window.innerWidth, H = window.innerHeight;
 const svg = d3.select("#g").attr("viewBox",[0,0,W,H]);
 const defs = svg.append("defs");
 
-function togglePlay(){{
-  const a=document.getElementById("audio");
-  const b=document.getElementById("play-btn");
-  if(!a) return;
-  if(a.paused){{ a.play(); b.textContent="PAUSE"; }}
-  else {{ a.pause(); b.textContent="PLAY"; }}
-}}
+const container = svg.append("g").attr("id","container");
 
-function toggleMute(){{
-  const a=document.getElementById("audio");
-  const b=document.getElementById("mute-btn");
-  if(!a) return;
-  a.muted=!a.muted;
-  b.textContent=a.muted?"UNMUTE":"MUTE";
-}}
+const zoom = d3.zoom()
+  .scaleExtent([0.05,10])
+  .on("zoom",(e)=>{{ container.attr("transform",e.transform); }});
+svg.call(zoom).on("dblclick.zoom",null);
 
 data.nodes.forEach(n=>{{
   const sid=n.id.replace(/[^a-zA-Z0-9]/g,"-");
@@ -178,7 +174,7 @@ function drawIcon(g,shape,color){{
   }}else if(shape==="heart_rel"||shape==="heart_married"){{
     g.append("path").attr("d",`M 0 ${{s*0.85}} C ${{-s*1.6}} ${{-s*0.1}} ${{-s*2}} ${{-s*1.15}} ${{-s*0.75}} ${{-s*1.4}} C ${{-s*0.2}} ${{-s*1.75}} 0 ${{-s*0.95}} 0 ${{-s*0.75}} C 0 ${{-s*0.95}} ${{s*0.2}} ${{-s*1.75}} ${{s*0.75}} ${{-s*1.4}} C ${{s*2}} ${{-s*1.15}} ${{s*1.6}} ${{-s*0.1}} 0 ${{s*0.85}} Z`).attr("fill",color).attr("stroke",dc).attr("stroke-width",1.5);
     if(shape==="heart_married"){{
-      [[- s*0.52,-s*0.4],[s*0.52,-s*0.4]].forEach(([hx,hy])=>{{
+      [[-s*0.52,-s*0.4],[s*0.52,-s*0.4]].forEach(([hx,hy])=>{{
         const hs=s*0.3;
         g.append("path").attr("d",`M ${{hx}} ${{hy+hs*0.85}} C ${{hx-hs*1.5}} ${{hy-hs*0.1}} ${{hx-hs*2}} ${{hy-hs*1.15}} ${{hx-hs*0.75}} ${{hy-hs*1.4}} C ${{hx-hs*0.2}} ${{hy-hs*1.75}} ${{hx}} ${{hy-hs*0.95}} ${{hx}} ${{hy-hs*0.75}} C ${{hx}} ${{hy-hs*0.95}} ${{hx+hs*0.2}} ${{hy-hs*1.75}} ${{hx+hs*0.75}} ${{hy-hs*1.4}} C ${{hx+hs*2}} ${{hy-hs*1.15}} ${{hx+hs*1.5}} ${{hy-hs*0.1}} ${{hx}} ${{hy+hs*0.85}} Z`).attr("fill",dc);
       }});
@@ -203,7 +199,13 @@ const sim=d3.forceSimulation(data.nodes)
   .force("center",d3.forceCenter(W/2,H/2))
   .force("collision",d3.forceCollide().radius(55));
 
-const eGrp=svg.append("g"),iGrp=svg.append("g"),nGrp=svg.append("g");
+// After initial layout, pin all nodes and stop simulation
+setTimeout(()=>{{
+  data.nodes.forEach(n=>{{ if(n.fx==null){{ n.fx=n.x; n.fy=n.y; }} }});
+  sim.alphaTarget(0).stop();
+}},2500);
+
+const eGrp=container.append("g"),iGrp=container.append("g"),nGrp=container.append("g");
 
 const edges=eGrp.selectAll("line").data(data.links).join("line")
   .attr("stroke",d=>d.color).attr("stroke-width",2).attr("stroke-opacity",0.6);
@@ -211,11 +213,23 @@ const edges=eGrp.selectAll("line").data(data.links).join("line")
 const icons=iGrp.selectAll("g").data(data.links).join("g");
 icons.each(function(d){{drawIcon(d3.select(this),d.shape,d.color)}});
 
-const nodes=nGrp.selectAll("g").data(data.nodes).join("g")
-  .call(d3.drag()
-    .on("start",(e)=>{{if(!e.active)sim.alphaTarget(0.3).restart();e.subject.fx=e.subject.x;e.subject.fy=e.subject.y;}})
-    .on("drag",(e)=>{{e.subject.fx=e.x;e.subject.fy=e.y;}})
-    .on("end",(e)=>{{if(!e.active)sim.alphaTarget(0);e.subject.fx=null;e.subject.fy=null;}}));
+const drag=d3.drag()
+  .on("start",(e)=>{{
+    e.sourceEvent.stopPropagation();
+    if(!e.active) sim.alphaTarget(0.1).restart();
+    e.subject.fx=e.subject.x;
+    e.subject.fy=e.subject.y;
+  }})
+  .on("drag",(e)=>{{
+    e.subject.fx=e.x;
+    e.subject.fy=e.y;
+  }})
+  .on("end",(e)=>{{
+    if(!e.active) sim.alphaTarget(0);
+    // fx/fy intentionally kept — node stays where dropped
+  }});
+
+const nodes=nGrp.selectAll("g").data(data.nodes).join("g").call(drag);
 
 nodes.append("circle").attr("r",33).attr("fill","none").attr("stroke","#1e3a80").attr("stroke-width",1.5).attr("opacity",0.6);
 
@@ -243,13 +257,31 @@ sim.on("tick",()=>{{
 window.addEventListener("resize",()=>{{
   const nw=window.innerWidth,nh=window.innerHeight;
   svg.attr("viewBox",[0,0,nw,nh]);
-  sim.force("center",d3.forceCenter(nw/2,nh/2)).alpha(0.1).restart();
 }});
 </script>
 </body>
 </html>"""
 
 # ── UI ─────────────────────────────────────────────────────────────────────────
+
+# Audio player — lives in its own separate component so it never reloads on graph changes
+music_url = st.session_state['music_url']
+autoplay = st.session_state['autoplay']
+if music_url:
+    ap_attr = 'autoplay' if autoplay else ''
+    init_btn = 'PAUSE' if autoplay else 'PLAY'
+    audio_html = f"""<style>
+body{{margin:0;background:transparent;display:flex;align-items:center;gap:8px;padding:4px 8px}}
+button{{background:#0e1c52;border:1px solid #2a4890;color:#80a8e8;padding:4px 12px;border-radius:3px;cursor:pointer;font-size:11px;letter-spacing:1px;font-family:sans-serif}}
+button:hover{{background:#1a2e70;color:#c0d8ff}}
+#lbl{{color:#5070a8;font-size:10px;letter-spacing:2px;font-family:sans-serif}}
+</style>
+<audio id="a" {ap_attr} loop src="{music_url}"></audio>
+<span id="lbl">♪ IN THE REFUGEE CAMP</span>
+<button id="pb" onclick="var a=document.getElementById('a');if(a.paused){{a.play();this.textContent='PAUSE'}}else{{a.pause();this.textContent='PLAY'}}">{init_btn}</button>
+<button onclick="var a=document.getElementById('a');a.muted=!a.muted;this.textContent=a.muted?'UNMUTE':'MUTE'">MUTE</button>"""
+    components.html(audio_html, height=44)
+
 c1, c2 = st.columns([2, 8])
 with c1:
     graph_type = st.radio("", ["Friends", "Family"], horizontal=True, label_visibility="collapsed")
@@ -264,9 +296,8 @@ for person in people:
     url = get_storage_url(f"{graph_type.lower()}/images/{person}")
     if url:
         image_urls[person] = url
-music_url = get_storage_url("music/refugee_camp.mp3")
 
-components.html(build_graph_html(people, connections, image_urls, music_url), height=520, scrolling=False)
+components.html(build_graph_html(people, connections, image_urls), height=520, scrolling=False)
 
 st.markdown("<hr style='margin:0.4rem 0'>", unsafe_allow_html=True)
 
@@ -333,13 +364,20 @@ with tab2:
         st.info("Add at least 2 people first!")
 
 with tab3:
-    st.markdown("**Upload music file**")
-    st.markdown("*One-time setup — upload your MP3 here*")
+    st.markdown("**Autoplay music on load**")
+    new_autoplay = st.toggle("Enable autoplay", value=st.session_state['autoplay'])
+    if new_autoplay != st.session_state['autoplay']:
+        st.session_state['autoplay'] = new_autoplay
+        save_settings({"autoplay": new_autoplay})
+        st.rerun()
+    st.markdown("---")
+    st.markdown("**Music file**")
     music_file = st.file_uploader("", type=["mp3"], key="music_up", label_visibility="collapsed")
     if music_file:
         with st.spinner("Uploading..."):
             upload_to_storage(music_file.read(), "music/refugee_camp.mp3", "audio/mpeg")
-        st.success("Music uploaded! Refresh to hear it.")
+            st.session_state['music_url'] = get_storage_url("music/refugee_camp.mp3")
+        st.success("Music uploaded!")
     if music_url:
         st.success("✓ Music file is ready")
     else:
