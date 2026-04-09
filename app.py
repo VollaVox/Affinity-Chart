@@ -148,50 +148,50 @@ data.nodes.forEach(n=>{{
 }});
 
 function drawIcon(g,shape,color){{
-  const s=10, dc="#06091e";
-  if(shape==="pentagon"){{
-    const pts=[...Array(5)].map((_,i)=>{{const a=(i*72-90)*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
-    g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",1.5);
-    g.append("rect").attr("x",-s*0.55).attr("y",-s*0.15).attr("width",s*0.38).attr("height",s*0.38).attr("fill",dc).attr("rx",0.5);
-    g.append("rect").attr("x",s*0.17).attr("y",-s*0.15).attr("width",s*0.38).attr("height",s*0.38).attr("fill",dc).attr("rx",0.5);
-    g.append("rect").attr("x",-s*0.45).attr("y",s*0.38).attr("width",s*0.9).attr("height",s*0.22).attr("fill",dc).attr("rx",0.5);
-  }}else if(shape==="square"){{
-    g.append("rect").attr("x",-s).attr("y",-s).attr("width",s*2).attr("height",s*2).attr("fill",color).attr("stroke",dc).attr("stroke-width",1.5).attr("rx",1.5);
-    g.append("rect").attr("x",-s*0.55).attr("y",-s*0.22).attr("width",s*0.38).attr("height",s*0.38).attr("fill",dc).attr("rx",0.5);
-    g.append("rect").attr("x",s*0.17).attr("y",-s*0.22).attr("width",s*0.38).attr("height",s*0.38).attr("fill",dc).attr("rx",0.5);
-    g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.3}} Q 0 ${{s*0.72}} ${{s*0.52}} ${{s*0.3}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.12).attr("stroke-linecap","round");
-  }}else if(shape==="circle"){{
-    g.append("circle").attr("r",s).attr("fill",color).attr("stroke",dc).attr("stroke-width",1.5);
-    g.append("rect").attr("x",-s*0.55).attr("y",-s*0.22).attr("width",s*0.4).attr("height",s*0.4).attr("fill",dc).attr("rx",0.5);
-    g.append("rect").attr("x",s*0.15).attr("y",-s*0.22).attr("width",s*0.4).attr("height",s*0.4).attr("fill",dc).attr("rx",0.5);
-    g.append("path").attr("d",`M ${{-s*0.55}} ${{s*0.28}} Q 0 ${{s*0.72}} ${{s*0.55}} ${{s*0.28}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.14).attr("stroke-linecap","round");
-  }}else if(shape==="hexagon"){{
-    const pts=[...Array(6)].map((_,i)=>{{const a=i*60*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
-    g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",1.5);
-    g.append("path").attr("d",`M ${{-s*0.58}} ${{-s*0.12}} Q ${{-s*0.3}} ${{-s*0.5}} ${{-s*0.02}} ${{-s*0.12}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.13).attr("stroke-linecap","round");
-    g.append("path").attr("d",`M ${{s*0.02}} ${{-s*0.12}} Q ${{s*0.3}} ${{-s*0.5}} ${{s*0.58}} ${{-s*0.12}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.13).attr("stroke-linecap","round");
-    g.append("path").attr("d",`M ${{-s*0.58}} ${{s*0.28}} Q 0 ${{s*0.72}} ${{s*0.58}} ${{s*0.28}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.15).attr("stroke-linecap","round");
-  }}else if(shape==="heart_rel"||shape==="heart_married"){{
-    g.append("path").attr("d",`M 0 ${{s*0.85}} C ${{-s*1.6}} ${{-s*0.1}} ${{-s*2}} ${{-s*1.15}} ${{-s*0.75}} ${{-s*1.4}} C ${{-s*0.2}} ${{-s*1.75}} 0 ${{-s*0.95}} 0 ${{-s*0.75}} C 0 ${{-s*0.95}} ${{s*0.2}} ${{-s*1.75}} ${{s*0.75}} ${{-s*1.4}} C ${{s*2}} ${{-s*1.15}} ${{s*1.6}} ${{-s*0.1}} 0 ${{s*0.85}} Z`).attr("fill",color).attr("stroke",dc).attr("stroke-width",1.5);
-    if(shape==="heart_married"){{
-      [[-s*0.52,-s*0.4],[s*0.52,-s*0.4]].forEach(([hx,hy])=>{{
-        const hs=s*0.3;
-        g.append("path").attr("d",`M ${{hx}} ${{hy+hs*0.85}} C ${{hx-hs*1.5}} ${{hy-hs*0.1}} ${{hx-hs*2}} ${{hy-hs*1.15}} ${{hx-hs*0.75}} ${{hy-hs*1.4}} C ${{hx-hs*0.2}} ${{hy-hs*1.75}} ${{hx}} ${{hy-hs*0.95}} ${{hx}} ${{hy-hs*0.75}} C ${{hx}} ${{hy-hs*0.95}} ${{hx+hs*0.2}} ${{hy-hs*1.75}} ${{hx+hs*0.75}} ${{hy-hs*1.4}} C ${{hx+hs*2}} ${{hy-hs*1.15}} ${{hx+hs*1.5}} ${{hy-hs*0.1}} ${{hx}} ${{hy+hs*0.85}} Z`).attr("fill",dc);
-      }});
-      g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.28}} Q 0 ${{s*0.65}} ${{s*0.52}} ${{s*0.28}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.12).attr("stroke-linecap","round");
-    }}else{{
-      g.append("rect").attr("x",-s*0.55).attr("y",-s*0.25).attr("width",s*0.38).attr("height",s*0.38).attr("fill",dc).attr("rx",0.5);
-      g.append("rect").attr("x",s*0.17).attr("y",-s*0.25).attr("width",s*0.38).attr("height",s*0.38).attr("fill",dc).attr("rx",0.5);
-      g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.25}} Q 0 ${{s*0.62}} ${{s*0.52}} ${{s*0.25}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.12).attr("stroke-linecap","round");
+    const s=16, dc="#06091e";
+    if(shape==="pentagon"){{
+      const pts=[...Array(5)].map((_,i)=>{{const a=(i*72-90)*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
+      g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+      g.append("rect").attr("x",-s*0.55).attr("y",-s*0.15).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+      g.append("rect").attr("x",s*0.175).attr("y",-s*0.15).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+      g.append("rect").attr("x",-s*0.45).attr("y",s*0.375).attr("width",s*0.9).attr("height",s*0.22).attr("fill",dc).attr("rx",0.8);
+    }}else if(shape==="square"){{
+      g.append("rect").attr("x",-s).attr("y",-s).attr("width",s*2).attr("height",s*2).attr("fill",color).attr("stroke",dc).attr("stroke-width",2).attr("rx",2.4);
+      g.append("rect").attr("x",-s*0.55).attr("y",-s*0.22).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+      g.append("rect").attr("x",s*0.175).attr("y",-s*0.22).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+      g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.3}} Q 0 ${{s*0.72}} ${{s*0.52}} ${{s*0.3}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
+    }}else if(shape==="circle"){{
+      g.append("circle").attr("r",s).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+      g.append("rect").attr("x",-s*0.55).attr("y",-s*0.22).attr("width",s*0.4).attr("height",s*0.4).attr("fill",dc).attr("rx",0.8);
+      g.append("rect").attr("x",s*0.15).attr("y",-s*0.22).attr("width",s*0.4).attr("height",s*0.4).attr("fill",dc).attr("rx",0.8);
+      g.append("path").attr("d",`M ${{-s*0.55}} ${{s*0.28}} Q 0 ${{s*0.72}} ${{s*0.55}} ${{s*0.28}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.14).attr("stroke-linecap","round");
+    }}else if(shape==="hexagon"){{
+      const pts=[...Array(6)].map((_,i)=>{{const a=i*60*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
+      g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+      g.append("path").attr("d",`M ${{-s*0.58}} ${{-s*0.12}} Q ${{-s*0.34}} ${{-s*0.5}} ${{-s*0.11}} ${{-s*0.12}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
+      g.append("path").attr("d",`M ${{s*0.11}} ${{-s*0.12}} Q ${{s*0.34}} ${{-s*0.5}} ${{s*0.58}} ${{-s*0.12}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
+      g.append("path").attr("d",`M ${{-s*0.58}} ${{s*0.28}} Q 0 ${{s*0.72}} ${{s*0.58}} ${{s*0.28}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.15).attr("stroke-linecap","round");
+    }}else if(shape==="heart_rel"||shape==="heart_married"){{
+      g.append("path").attr("d",`M 0 ${{s*0.625}} C ${{-s}} 0 ${{-s*1.25}} ${{-s*0.625}} ${{-s*0.594}} ${{-s*0.906}} C ${{-s*0.25}} ${{-s*1.0625}} 0 ${{-s*0.6875}} 0 ${{-s*0.5625}} C 0 ${{-s*0.6875}} ${{s*0.25}} ${{-s*1.0625}} ${{s*0.594}} ${{-s*0.906}} C ${{s*1.25}} ${{-s*0.625}} ${{s}} 0 0 ${{s*0.625}} Z`).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+      if(shape==="heart_married"){{
+        [[-s*0.36,-s*0.09],[s*0.36,-s*0.09]].forEach(([hx,hy])=>{{
+          const hs=s*0.42;
+          g.append("path").attr("d",`M ${{hx}} ${{hy+hs*0.625}} C ${{hx-hs}} ${{hy}} ${{hx-hs*1.25}} ${{hy-hs*0.625}} ${{hx-hs*0.594}} ${{hy-hs*0.906}} C ${{hx-hs*0.25}} ${{hy-hs*1.0625}} ${{hx}} ${{hy-hs*0.6875}} ${{hx}} ${{hy-hs*0.5625}} C ${{hx}} ${{hy-hs*0.6875}} ${{hx+hs*0.25}} ${{hy-hs*1.0625}} ${{hx+hs*0.594}} ${{hy-hs*0.906}} C ${{hx+hs*1.25}} ${{hy-hs*0.625}} ${{hx+hs}} ${{hy}} ${{hx}} ${{hy+hs*0.625}} Z`).attr("fill",dc);
+        }});
+        g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.03}} Q 0 ${{s*0.39}} ${{s*0.52}} ${{s*0.03}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
+      }}else{{
+        g.append("rect").attr("x",-s*0.55).attr("y",-s*0.44).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+        g.append("rect").attr("x",s*0.175).attr("y",-s*0.44).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
+        g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.03}} Q 0 ${{s*0.39}} ${{s*0.52}} ${{s*0.03}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
+      }}
+    }}else if(shape==="triangle"){{
+      const h=s*1.2;
+      g.append("polygon").attr("points",`0,${{-h}} ${{h}},${{h*0.7}} ${{-h}},${{h*0.7}}`).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+      g.append("rect").attr("x",-s*0.58).attr("y",-s*0.19).attr("width",s*0.375).attr("height",s*0.31).attr("fill",dc).attr("rx",0.8).attr("transform","rotate(-18)");
+      g.append("rect").attr("x",s*0.2).attr("y",-s*0.19).attr("width",s*0.375).attr("height",s*0.31).attr("fill",dc).attr("rx",0.8).attr("transform","rotate(18)");
+      g.append("path").attr("d",`M ${{-s*0.55}} ${{s*0.5}} Q 0 ${{s*0.125}} ${{s*0.55}} ${{s*0.5}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
     }}
-  }}else if(shape==="triangle"){{
-    const h=s*1.2;
-    g.append("polygon").attr("points",`0,${{-h}} ${{h}},${{h*0.7}} ${{-h}},${{h*0.7}}`).attr("fill",color).attr("stroke",dc).attr("stroke-width",1.5);
-    g.append("rect").attr("x",-s*0.58).attr("y",s*0.0).attr("width",s*0.38).attr("height",s*0.32).attr("fill",dc).attr("rx",0.5).attr("transform","rotate(-18)");
-    g.append("rect").attr("x",s*0.2).attr("y",s*0.0).attr("width",s*0.38).attr("height",s*0.32).attr("fill",dc).attr("rx",0.5).attr("transform","rotate(18)");
-    g.append("path").attr("d",`M ${{-s*0.55}} ${{s*0.75}} Q 0 ${{s*0.32}} ${{s*0.55}} ${{s*0.75}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.12).attr("stroke-linecap","round");
   }}
-}}
 
 const sim=d3.forceSimulation(data.nodes)
   .force("link",d3.forceLink(data.links).id(d=>d.id).distance(180))
