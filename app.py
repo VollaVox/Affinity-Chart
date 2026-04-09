@@ -132,6 +132,7 @@ const container = svg.append("g").attr("id","container");
 
 const zoom = d3.zoom()
   .scaleExtent([0.05,10])
+  .filter(e=>e.target.closest("circle")==null&&e.target.closest("text")==null)
   .on("zoom",(e)=>{{ container.attr("transform",e.transform); }});
 svg.call(zoom).on("dblclick.zoom",null);
 
@@ -235,12 +236,14 @@ icons.each(function(d){{drawIcon(d3.select(this),d.shape,d.color)}});
 const drag=d3.drag()
   .on("start",(e)=>{{
     e.sourceEvent.stopPropagation();
-    e.subject.fx=e.subject.x;
-    e.subject.fy=e.subject.y;
+    const p=d3.pointer(e.sourceEvent,container.node());
+    e.subject.fx=p[0];
+    e.subject.fy=p[1];
   }})
   .on("drag",(e)=>{{
-    e.subject.fx=e.x;
-    e.subject.fy=e.y;
+    const p=d3.pointer(e.sourceEvent,container.node());
+    e.subject.fx=p[0];
+    e.subject.fy=p[1];
     tick();
   }})
   .on("end",()=>{{ savePositions(); }});
@@ -305,7 +308,6 @@ window.addEventListener("resize",()=>{{
 </body>
 </html>"""
 
-# ── UI ─────────────────────────────────────────────────────────────────────────
 music_url = st.session_state['music_url']
 autoplay = st.session_state['autoplay']
 if music_url:
