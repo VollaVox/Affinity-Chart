@@ -70,6 +70,11 @@ def get_storage_url(path):
         return blob.public_url
     return None
 
+def delete_from_storage(path):
+    blob = bucket.blob(path)
+    if blob.exists():
+        blob.delete()
+        
 def get_settings():
     ref = db.collection("settings").document("preferences").get()
     return ref.to_dict() if ref.exists else {"autoplay": False}
@@ -467,15 +472,21 @@ with tab1:
                 st.warning("Already added!")
     st.markdown("---")
     for i, person in enumerate(people):
-        r1, r2, r3 = st.columns([4, 2, 1])
+        r1, r2, r3, r4 = st.columns([3, 2, 2, 1])
         r1.write(person)
         img_upd = r2.file_uploader("", type=["jpg","jpeg","png"], key=f"upd_{i}", label_visibility="collapsed")
         if img_upd:
             upload_to_storage(img_upd.read(), f"friends/images/{person}", img_upd.type)
             st.rerun()
-        if r3.button("✕", key=f"del_{i}"):
+        has_image = get_storage_url(f"friends/images/{person}") is not None
+        if has_image:
+            if r3.button("🗑 Remove photo", key=f"rmp_{i}"):
+                delete_from_storage(f"friends/images/{person}")
+                st.rerun()
+        if r4.button("✕", key=f"del_{i}"):
             people.remove(person)
             connections = [c for c in connections if c["from"] != person and c["to"] != person]
+            delete_from_storage(f"friends/images/{person}")
             save_people(people)
             save_connections(connections)
             st.rerun()
