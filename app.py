@@ -457,7 +457,14 @@ with tab1:
                 st.warning("Already added!")
     st.markdown("---")
     from streamlit_sortables import sort_items
-    sorted_people = sort_items(people, direction="vertical")
+    sorted_people = sort_items(people, direction="vertical", custom_style={
+        "background-color": "#0e1c52",
+        "color": "#80a8e8",
+        "border": "1px solid #2a4890",
+        "border-radius": "3px",
+        "font-size": "13px",
+        "letter-spacing": "1px",
+    })
     if sorted_people != people:
         save_people(sorted_people)
         st.rerun()
