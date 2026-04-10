@@ -111,8 +111,9 @@ def build_graph_html(people, connections, image_urls, project_id):
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
-body{{background:#06091e;overflow:hidden;font-family:sans-serif;touch-action:none}}
-svg{{width:100vw;height:100vh;display:block}}
+body{{background:#06091e;overflow:hidden;font-family:sans-serif}}
+canvas{{display:none}}
+svg{{width:100vw;height:100vh;display:block;user-select:none;-webkit-user-select:none}}
 .n-name{{fill:#a0c8ff;font-size:11px;text-anchor:middle;pointer-events:none}}
 .n-init{{fill:#6090e0;font-size:15px;font-weight:500;text-anchor:middle;dominant-baseline:middle;pointer-events:none}}
 </style>
@@ -126,20 +127,142 @@ const PROJECT_ID = "{project_id}";
 const FS_URL = `https://firestore.googleapis.com/v1/projects/${{PROJECT_ID}}/databases/(default)/documents/positions/friends`;
 const W = window.innerWidth, H = window.innerHeight;
 const svgEl = document.getElementById("g");
-const svg = d3.select(svgEl).attr("viewBox",[0,0,W,H]);
+const svg = d3.select(svgEl).attr("viewBox", [0,0,W,H]);
 const defs = svg.append("defs");
-const container = svg.append("g").attr("id","container");
+const container = svg.append("g");
 
-let currentTransform = d3.zoomIdentity;
+// ── zoom / pan ────────────────────────────────────────────────────────────────
+let tx=0, ty=0, scale=1;
+let dragNode=null, dragOffX=0, dragOffY=0;
+let panStart=null;
 
-const zoom = d3.zoom()
-  .scaleExtent([0.05,10])
-  .on("zoom",(e)=>{{
-    currentTransform = e.transform;
-    container.attr("transform", e.transform);
-  }});
-svg.call(zoom).on("dblclick.zoom",null);
+function applyTransform(){{
+  container.attr("transform",`translate(${{tx}},${{ty}}) scale(${{scale}})`);
+}}
 
+function svgPoint(clientX, clientY){{
+  const rect = svgEl.getBoundingClientRect();
+  return [
+    (clientX - rect.left - tx) / scale,
+    (clientY - rect.top  - ty) / scale
+  ];
+}}
+
+function hitNode(clientX, clientY){{
+  const [x,y] = svgPoint(clientX, clientY);
+  return data.nodes.find(n => Math.hypot(n.x-x, n.y-y) < 35) || null;
+}}
+
+// mouse
+svgEl.addEventListener("mousedown", e=>{{
+  const n = hitNode(e.clientX, e.clientY);
+  if(n){{
+    dragNode = n;
+    const [x,y] = svgPoint(e.clientX, e.clientY);
+    dragOffX = x - n.x;
+    dragOffY = y - n.y;
+    svgEl.style.cursor = "grabbing";
+  }} else {{
+    panStart = {{cx:e.clientX, cy:e.clientY, tx, ty}};
+    svgEl.style.cursor = "grabbing";
+  }}
+  e.preventDefault();
+}});
+
+window.addEventListener("mousemove", e=>{{
+  if(dragNode){{
+    const [x,y] = svgPoint(e.clientX, e.clientY);
+    dragNode.x = dragNode.fx = x - dragOffX;
+    dragNode.y = dragNode.fy = y - dragOffY;
+    tick();
+  }} else if(panStart){{
+    tx = panStart.tx + (e.clientX - panStart.cx);
+    ty = panStart.ty + (e.clientY - panStart.cy);
+    applyTransform();
+  }}
+}});
+
+window.addEventListener("mouseup", e=>{{
+  if(dragNode){{ savePositions(); dragNode=null; }}
+  panStart = null;
+  svgEl.style.cursor = "default";
+}});
+
+// scroll to zoom
+svgEl.addEventListener("wheel", e=>{{
+  e.preventDefault();
+  const rect = svgEl.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const factor = e.deltaY < 0 ? 1.1 : 0.9;
+  const newScale = Math.min(10, Math.max(0.05, scale * factor));
+  tx = mx - (mx - tx) * (newScale/scale);
+  ty = my - (my - ty) * (newScale/scale);
+  scale = newScale;
+  applyTransform();
+}}, {{passive:false}});
+
+// touch
+let lastTouchDist = null;
+svgEl.addEventListener("touchstart", e=>{{
+  e.preventDefault();
+  if(e.touches.length===1){{
+    const t = e.touches[0];
+    const n = hitNode(t.clientX, t.clientY);
+    if(n){{
+      dragNode = n;
+      const [x,y] = svgPoint(t.clientX, t.clientY);
+      dragOffX = x - n.x;
+      dragOffY = y - n.y;
+    }} else {{
+      panStart = {{cx:t.clientX, cy:t.clientY, tx, ty}};
+    }}
+  }} else if(e.touches.length===2){{
+    dragNode = null; panStart = null;
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    lastTouchDist = Math.hypot(dx,dy);
+  }}
+}}, {{passive:false}});
+
+svgEl.addEventListener("touchmove", e=>{{
+  e.preventDefault();
+  if(e.touches.length===1){{
+    const t = e.touches[0];
+    if(dragNode){{
+      const [x,y] = svgPoint(t.clientX, t.clientY);
+      dragNode.x = dragNode.fx = x - dragOffX;
+      dragNode.y = dragNode.fy = y - dragOffY;
+      tick();
+    }} else if(panStart){{
+      tx = panStart.tx + (t.clientX - panStart.cx);
+      ty = panStart.ty + (t.clientY - panStart.cy);
+      applyTransform();
+    }}
+  }} else if(e.touches.length===2 && lastTouchDist){{
+    const dx = e.touches[0].clientX - e.touches[1].clientX;
+    const dy = e.touches[0].clientY - e.touches[1].clientY;
+    const dist = Math.hypot(dx,dy);
+    const mx = (e.touches[0].clientX + e.touches[1].clientX)/2;
+    const my = (e.touches[0].clientY + e.touches[1].clientY)/2;
+    const rect = svgEl.getBoundingClientRect();
+    const px = mx - rect.left, py = my - rect.top;
+    const factor = dist / lastTouchDist;
+    const newScale = Math.min(10, Math.max(0.05, scale * factor));
+    tx = px - (px - tx) * (newScale/scale);
+    ty = py - (py - ty) * (newScale/scale);
+    scale = newScale;
+    lastTouchDist = dist;
+    applyTransform();
+  }}
+}}, {{passive:false}});
+
+svgEl.addEventListener("touchend", e=>{{
+  if(dragNode){{ savePositions(); dragNode=null; }}
+  panStart=null; lastTouchDist=null;
+}});
+
+// ── firebase ──────────────────────────────────────────────────────────────────
 async function loadPositions(){{
   try{{
     const res = await fetch(FS_URL);
@@ -150,32 +273,32 @@ async function loadPositions(){{
 }}
 
 async function savePositions(){{
-  const pos = {{}};
-  data.nodes.forEach(n=>{{ pos[n.id] = {{x: n.fx??n.x, y: n.fy??n.y}}; }});
+  const pos={{}};
+  data.nodes.forEach(n=>{{ pos[n.id]={{x:n.x,y:n.y}}; }});
   try{{
-    await fetch(FS_URL+"?updateMask.fieldPaths=data", {{
+    await fetch(FS_URL+"?updateMask.fieldPaths=data",{{
       method:"PATCH",
       headers:{{"Content-Type":"application/json"}},
-      body: JSON.stringify({{fields:{{data:{{stringValue:JSON.stringify(pos)}}}}}})
+      body:JSON.stringify({{fields:{{data:{{stringValue:JSON.stringify(pos)}}}}}})
     }});
   }}catch(e){{}}
 }}
 
+// ── images ────────────────────────────────────────────────────────────────────
 data.nodes.forEach(n=>{{
   const sid=n.id.replace(/[^a-zA-Z0-9]/g,"-");
   defs.append("clipPath").attr("id","clip-"+sid)
-    .append("circle").attr("r",28).attr("cx",0).attr("cy",0);
+    .append("circle").attr("r",28);
   if(n.image){{
-    const pat=defs.append("pattern")
-      .attr("id","img-"+sid)
-      .attr("patternUnits","objectBoundingBox")
-      .attr("width",1).attr("height",1);
+    const pat=defs.append("pattern").attr("id","img-"+sid)
+      .attr("patternUnits","objectBoundingBox").attr("width",1).attr("height",1);
     pat.append("image").attr("href",n.image)
       .attr("width",56).attr("height",56)
       .attr("preserveAspectRatio","xMidYMid slice");
   }}
 }});
 
+// ── icons ─────────────────────────────────────────────────────────────────────
 function drawIcon(g,shape,color){{
   const s=16, dc="#06091e";
   if(shape==="pentagon"){{
@@ -222,92 +345,73 @@ function drawIcon(g,shape,color){{
   }}
 }}
 
-const sim = d3.forceSimulation(data.nodes)
-  .force("link", d3.forceLink(data.links).id(d=>d.id).distance(180))
-  .force("charge", d3.forceManyBody().strength(-320))
-  .force("center", d3.forceCenter(W/2, H/2))
-  .force("collision", d3.forceCollide().radius(55))
-  .stop();
-
+// ── graph elements ────────────────────────────────────────────────────────────
 const eGrp=container.append("g"), iGrp=container.append("g"), nGrp=container.append("g");
 
-const edges = eGrp.selectAll("line").data(data.links).join("line")
-  .attr("stroke", d=>d.color).attr("stroke-width", 2).attr("stroke-opacity", 0.6);
+const edges=eGrp.selectAll("line").data(data.links).join("line")
+  .attr("stroke",d=>d.color).attr("stroke-width",2).attr("stroke-opacity",0.6);
 
-const icons = iGrp.selectAll("g").data(data.links).join("g");
-icons.each(function(d){{ drawIcon(d3.select(this), d.shape, d.color); }});
+const icons=iGrp.selectAll("g").data(data.links).join("g");
+icons.each(function(d){{ drawIcon(d3.select(this),d.shape,d.color); }});
 
-const drag = d3.drag()
-  .on("start", (e) => {{
-    e.sourceEvent.stopPropagation();
-    e.sourceEvent.preventDefault();
-  }})
-  .on("drag", (e) => {{
-    const [mx, my] = d3.pointer(e.sourceEvent, svgEl);
-    const [x, y] = currentTransform.invert([mx, my]);
-    e.subject.fx = x;
-    e.subject.fy = y;
-    tick();
-  }})
-  .on("end", () => {{ savePositions(); }});
-
-const nodes = nGrp.selectAll("g").data(data.nodes).join("g").call(drag)
-  .style("cursor", "grab");
-
-nodes.append("circle").attr("r", 33).attr("fill","none").attr("stroke","#1e3a80").attr("stroke-width",1.5).attr("opacity",0.6);
-
-nodes.each(function(d) {{
-  const g = d3.select(this);
-  const sid = d.id.replace(/[^a-zA-Z0-9]/g, "-");
-  if(d.image) {{
+const nodeGroups=nGrp.selectAll("g").data(data.nodes).join("g");
+nodeGroups.append("circle").attr("r",33).attr("fill","none").attr("stroke","#1e3a80").attr("stroke-width",1.5).attr("opacity",0.6);
+nodeGroups.each(function(d){{
+  const g=d3.select(this);
+  const sid=d.id.replace(/[^a-zA-Z0-9]/g,"-");
+  if(d.image){{
     g.append("circle").attr("r",28).attr("fill",`url(#img-${{sid}})`).attr("stroke","#4a78c8").attr("stroke-width",2.5).attr("clip-path",`url(#clip-${{sid}})`);
-  }} else {{
+  }}else{{
     g.append("circle").attr("r",28).attr("fill","#0e1c52").attr("stroke","#4a78c8").attr("stroke-width",2.5);
     g.append("text").attr("class","n-init").attr("dy","0.1em")
       .text(d.id.split(" ").map(w=>w[0]||"").join("").toUpperCase().slice(0,2));
   }}
   g.append("text").attr("class","n-name").attr("y",45)
-    .text(d.id.length>14 ? d.id.slice(0,13)+"…" : d.id);
+    .text(d.id.length>14?d.id.slice(0,13)+"…":d.id);
 }});
 
-function tick() {{
+function tick(){{
   edges.attr("x1",d=>d.source.x).attr("y1",d=>d.source.y)
        .attr("x2",d=>d.target.x).attr("y2",d=>d.target.y);
   icons.attr("transform",d=>`translate(${{(d.source.x+d.target.x)/2}},${{(d.source.y+d.target.y)/2}})`);
-  nodes.attr("transform",d=>`translate(${{d.x}},${{d.y}})`);
+  nodeGroups.attr("transform",d=>`translate(${{d.x}},${{d.y}})`);
 }}
 
-async function init() {{
+// ── init ──────────────────────────────────────────────────────────────────────
+const sim=d3.forceSimulation(data.nodes)
+  .force("link",d3.forceLink(data.links).id(d=>d.id).distance(180))
+  .force("charge",d3.forceManyBody().strength(-320))
+  .force("center",d3.forceCenter(W/2,H/2))
+  .force("collision",d3.forceCollide().radius(55))
+  .on("tick",tick);
+
+async function init(){{
   const savedPos = await loadPositions();
   const hasSaved = Object.keys(savedPos).length > 0;
-  if(hasSaved) {{
-    data.nodes.forEach(n => {{
-      if(savedPos[n.id]) {{
-        n.x = n.fx = savedPos[n.id].x;
-        n.y = n.fy = savedPos[n.id].y;
-      }} else {{
-        n.x = n.fx = W/2 + (Math.random()-0.5)*200;
-        n.y = n.fy = H/2 + (Math.random()-0.5)*200;
+  if(hasSaved){{
+    data.nodes.forEach(n=>{{
+      if(savedPos[n.id]){{
+        n.x = savedPos[n.id].x;
+        n.y = savedPos[n.id].y;
+      }}else{{
+        n.x = W/2 + (Math.random()-0.5)*200;
+        n.y = H/2 + (Math.random()-0.5)*200;
       }}
+      n.fx = n.x; n.fy = n.y;
     }});
+    sim.alpha(0).stop();
     tick();
-  }} else {{
-    sim.on("tick", tick);
+  }}else{{
     sim.alpha(1).restart();
-    setTimeout(() => {{
-      data.nodes.forEach(n => {{ n.fx=n.x; n.fy=n.y; }});
+    setTimeout(()=>{{
+      data.nodes.forEach(n=>{{ n.fx=n.x; n.fy=n.y; }});
       sim.stop();
       savePositions();
-    }}, 2500);
+    }},2500);
   }}
 }}
 
 init();
-
-window.addEventListener("resize", () => {{
-  const nw=window.innerWidth, nh=window.innerHeight;
-  svg.attr("viewBox",[0,0,nw,nh]);
-}});
 </script>
 </body>
 </html>"""
