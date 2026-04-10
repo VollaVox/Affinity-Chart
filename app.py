@@ -458,12 +458,12 @@ with tab1:
     st.markdown("---")
     from streamlit_sortables import sort_items
     sorted_people = sort_items(people, direction="vertical", custom_style={
-        "background-color": "#0e1c52",
+        "backgroundColor": "#0e1c52",
         "color": "#80a8e8",
         "border": "1px solid #2a4890",
-        "border-radius": "3px",
-        "font-size": "13px",
-        "letter-spacing": "1px",
+        "borderRadius": "3px",
+        "fontSize": "13px",
+        "letterSpacing": "1px",
     })
     if sorted_people != people:
         save_people(sorted_people)
