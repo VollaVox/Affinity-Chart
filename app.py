@@ -108,6 +108,11 @@ def apply_crop(img, zoom, x_pct, y_pct):
     top = int(max_y * y_pct / 100)
     return img.crop((left, top, left + crop_size, top + crop_size)).resize((300, 300))
 
+def store_crop_image(file):
+    buf = io.BytesIO()
+    Image.open(file).convert("RGB").save(buf, format="PNG")
+    st.session_state['crop_image'] = buf.getvalue()
+
 def get_settings():
     ref = db.collection("settings").document("preferences").get()
     return ref.to_dict() if ref.exists else {"autoplay": False}
@@ -475,10 +480,10 @@ with tab1:
 
     # ── crop workflow ─────────────────────────────────────────────────────────
     if st.session_state['crop_image'] is not None:
-        img = st.session_state['crop_image']
+        img = Image.open(io.BytesIO(st.session_state['crop_image']))
         person_label = st.session_state['crop_person'] or st.session_state['crop_new_person_name'] or "person"
         st.markdown(f"**Adjusting photo for {person_label}**")
-        st.caption("Use the sliders to zoom and position, then confirm.")
+        st.caption("Zoom in first, then use the position sliders to frame the shot.")
 
         col_sliders, col_preview = st.columns([2, 1])
         with col_sliders:
@@ -497,7 +502,7 @@ with tab1:
                 img_bytes = pil_to_bytes(cropped)
                 if st.session_state['crop_person']:
                     upload_image(img_bytes, st.session_state['crop_person'])
-                    st.toast(f"✓ Photo updated — visible on next refresh")
+                    st.toast("✓ Photo updated — visible on next refresh")
                 else:
                     name = st.session_state['crop_new_person_name']
                     if name and name not in people:
@@ -526,7 +531,7 @@ with tab1:
             if st.button("➕ Add Person", use_container_width=True):
                 if new_name and new_name not in people:
                     if img_file:
-                        buf = io.BytesIO() Image.open(img_file).convert("RGB").save(buf, format="PNG") st.session_state['crop_image'] = buf.getvalue()
+                        store_crop_image(img_file)
                         st.session_state['crop_new_person_name'] = new_name
                         st.session_state['crop_person'] = None
                         st.rerun()
@@ -549,7 +554,7 @@ with tab1:
             r1.write(person)
             img_upd = r2.file_uploader("", type=["jpg","jpeg","png"], key=f"upd_{i}", label_visibility="collapsed")
             if img_upd:
-                st.session_state['crop_image'] = Image.open(img_upd).convert("RGB")
+                store_crop_image(img_upd)
                 st.session_state['crop_person'] = person
                 st.session_state['crop_new_person_name'] = None
                 st.rerun()
