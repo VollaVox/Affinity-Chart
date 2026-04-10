@@ -3,8 +3,11 @@ import firebase_admin
 from firebase_admin import credentials, firestore, storage
 import json
 import time
+import io
 import streamlit.components.v1 as components
 from streamlit_sortables import sort_items
+from streamlit_cropper import st_cropper
+from PIL import Image
 
 st.set_page_config(page_title="Affinity Chart", layout="wide", initial_sidebar_state="collapsed")
 
@@ -67,10 +70,10 @@ def save_people(people):
 def save_connections(connections):
     db.collection(GRAPH_TYPE).document("connections").set({"list": connections})
 
-def upload_image(data, person, content_type):
+def upload_image(img_bytes, person, content_type="image/png"):
     path = f"friends/images/{person}"
     blob = bucket.blob(path)
-    blob.upload_from_string(data, content_type=content_type)
+    blob.upload_from_string(img_bytes, content_type=content_type)
     blob.make_public()
     url = blob.public_url + f"?t={int(time.time())}"
     st.session_state['image_urls'][person] = url
@@ -91,6 +94,11 @@ def fetch_all_image_urls(people):
             blob.make_public()
             urls[person] = blob.public_url + f"?t={int(time.time())}"
     return urls
+
+def pil_to_bytes(img):
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
 
 def get_settings():
     ref = db.collection("settings").document("preferences").get()
@@ -115,6 +123,14 @@ if 'autoplay' not in st.session_state:
 if 'image_urls' not in st.session_state:
     people_init, _ = load_data()
     st.session_state['image_urls'] = fetch_all_image_urls(people_init)
+
+# crop workflow state
+if 'crop_person' not in st.session_state:
+    st.session_state['crop_person'] = None
+if 'crop_image' not in st.session_state:
+    st.session_state['crop_image'] = None
+if 'crop_new_person_name' not in st.session_state:
+    st.session_state['crop_new_person_name'] = None
 
 REL_TYPES = {
     "Know each other": {"color": "#C8A020", "shape": "pentagon"},
@@ -449,45 +465,94 @@ st.markdown("<hr style='margin:0.4rem 0'>", unsafe_allow_html=True)
 tab1, tab2, tab3 = st.tabs(["👤  People", "🔗  Connections", "⚙️  Settings"])
 
 with tab1:
-    ca, cb = st.columns([3, 2])
-    with ca:
-        new_name = st.text_input("Name", placeholder="Enter name...")
-        img_file = st.file_uploader("Profile photo (optional)", type=["jpg","jpeg","png"], key="img_up")
-    with cb:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        if st.button("➕ Add Person", use_container_width=True):
-            if new_name and new_name not in people:
-                people.append(new_name)
-                save_people(people)
-                if img_file:
-                    upload_image(img_file.read(), new_name, img_file.type)
+
+    # ── crop workflow ─────────────────────────────────────────────────────────
+    if st.session_state['crop_image'] is not None:
+        person_label = st.session_state['crop_person'] or st.session_state['crop_new_person_name'] or "this person"
+        st.markdown(f"**Crop photo for {person_label}**")
+        st.caption("Drag the box to select your crop, then click Confirm.")
+        img = st.session_state['crop_image']
+        cropped = st_cropper(
+            img,
+            realtime_update=True,
+            box_color="#4a78c8",
+            aspect_ratio=(1, 1),
+        )
+        col_confirm, col_cancel = st.columns([1, 1])
+        with col_confirm:
+            if st.button("✅ Confirm crop", use_container_width=True):
+                img_bytes = pil_to_bytes(cropped)
+                if st.session_state['crop_person']:
+                    # updating existing person
+                    upload_image(img_bytes, st.session_state['crop_person'])
+                    st.toast(f"✓ Photo updated for {st.session_state['crop_person']} — visible on next refresh")
+                else:
+                    # adding new person
+                    name = st.session_state['crop_new_person_name']
+                    if name and name not in people:
+                        people.append(name)
+                        save_people(people)
+                    upload_image(img_bytes, name)
+                st.session_state['crop_image'] = None
+                st.session_state['crop_person'] = None
+                st.session_state['crop_new_person_name'] = None
                 st.rerun()
-            elif new_name in people:
-                st.warning("Already added!")
-    st.markdown("---")
-    sorted_people = sort_items(people, direction="vertical")
-    if sorted_people != people:
-        save_people(sorted_people)
-        st.rerun()
-    st.markdown("---")
-    for i, person in enumerate(people):
-        r1, r2, r3, r4 = st.columns([3, 2, 2, 1])
-        r1.write(person)
-        img_upd = r2.file_uploader("", type=["jpg","jpeg","png"], key=f"upd_{i}", label_visibility="collapsed")
-        if img_upd:
-            upload_image(img_upd.read(), person, img_upd.type)
-            st.toast(f"✓ Photo updated for {person} — visible on next refresh")
-        if person in image_urls:
-            if r3.button("🗑 Photo", key=f"rmp_{i}"):
-                delete_image(person)
-                st.toast(f"✓ Photo removed for {person}")
-        if r4.button("✕", key=f"del_{i}"):
-            people.remove(person)
-            connections = [c for c in connections if c["from"] != person and c["to"] != person]
-            delete_image(person)
-            save_people(people)
-            save_connections(connections)
+        with col_cancel:
+            if st.button("✕ Cancel", use_container_width=True):
+                st.session_state['crop_image'] = None
+                st.session_state['crop_person'] = None
+                st.session_state['crop_new_person_name'] = None
+                st.rerun()
+
+    else:
+        # ── normal add person UI ──────────────────────────────────────────────
+        ca, cb = st.columns([3, 2])
+        with ca:
+            new_name = st.text_input("Name", placeholder="Enter name...")
+            img_file = st.file_uploader("Profile photo (optional)", type=["jpg","jpeg","png"], key="img_up")
+        with cb:
+            st.markdown("<br><br>", unsafe_allow_html=True)
+            if st.button("➕ Add Person", use_container_width=True):
+                if new_name and new_name not in people:
+                    if img_file:
+                        st.session_state['crop_image'] = Image.open(img_file)
+                        st.session_state['crop_new_person_name'] = new_name
+                        st.session_state['crop_person'] = None
+                        st.rerun()
+                    else:
+                        people.append(new_name)
+                        save_people(people)
+                        st.rerun()
+                elif new_name in people:
+                    st.warning("Already added!")
+
+        st.markdown("---")
+        sorted_people = sort_items(people, direction="vertical")
+        if sorted_people != people:
+            save_people(sorted_people)
             st.rerun()
+        st.markdown("---")
+
+        for i, person in enumerate(people):
+            r1, r2, r3, r4 = st.columns([3, 2, 2, 1])
+            r1.write(person)
+            img_upd = r2.file_uploader("", type=["jpg","jpeg","png"], key=f"upd_{i}", label_visibility="collapsed")
+            if img_upd:
+                st.session_state['crop_image'] = Image.open(img_upd)
+                st.session_state['crop_person'] = person
+                st.session_state['crop_new_person_name'] = None
+                st.rerun()
+            if person in image_urls:
+                if r3.button("🗑 Photo", key=f"rmp_{i}"):
+                    delete_image(person)
+                    st.toast(f"✓ Photo removed for {person}")
+            if r4.button("✕", key=f"del_{i}"):
+                people.remove(person)
+                connections = [c for c in connections if c["from"] != person and c["to"] != person]
+                delete_image(person)
+                save_people(people)
+                save_connections(connections)
+                st.rerun()
 
 with tab2:
     if len(people) >= 2:
