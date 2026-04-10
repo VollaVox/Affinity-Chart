@@ -4,6 +4,7 @@ from firebase_admin import credentials, firestore, storage
 import json
 import time
 import streamlit.components.v1 as components
+from streamlit_sortables import sort_items
 
 st.set_page_config(page_title="Affinity Chart", layout="wide", initial_sidebar_state="collapsed")
 
@@ -24,6 +25,14 @@ st.markdown("""
 h1, h2, h3 { color: #80b8f8 !important; font-family: monospace; letter-spacing: 2px; }
 p, label, .stMarkdown { color: #8098c8 !important; }
 hr { border-color: #1e3270; }
+[data-rbd-draggable-id] {
+    background-color: #0e1c52 !important;
+    color: #80a8e8 !important;
+    border: 1px solid #2a4890 !important;
+    border-radius: 3px !important;
+    font-size: 13px !important;
+    letter-spacing: 1px !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -456,19 +465,6 @@ with tab1:
             elif new_name in people:
                 st.warning("Already added!")
     st.markdown("---")
-    from streamlit_sortables import sort_items
-    st.markdown("""
-    <style>
-    .sortable-item {
-        background-color: #0e1c52 !important;
-        color: #80a8e8 !important;
-        border: 1px solid #2a4890 !important;
-        border-radius: 3px !important;
-        font-size: 13px !important;
-        letter-spacing: 1px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
     sorted_people = sort_items(people, direction="vertical")
     if sorted_people != people:
         save_people(sorted_people)
