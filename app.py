@@ -101,16 +101,12 @@ def pil_to_bytes(img):
 
 def apply_crop(img, zoom, x_pct, y_pct):
     w, h = img.size
-    crop_size = min(w, h) / zoom
-    cx = w * x_pct / 100
-    cy = h * y_pct / 100
-    cx = max(crop_size / 2, min(w - crop_size / 2, cx))
-    cy = max(crop_size / 2, min(h - crop_size / 2, cy))
-    left = int(cx - crop_size / 2)
-    top = int(cy - crop_size / 2)
-    right = int(cx + crop_size / 2)
-    bottom = int(cy + crop_size / 2)
-    return img.crop((left, top, right, bottom)).resize((300, 300))
+    crop_size = int(min(w, h) / zoom)
+    max_x = w - crop_size
+    max_y = h - crop_size
+    left = int(max_x * x_pct / 100)
+    top = int(max_y * y_pct / 100)
+    return img.crop((left, top, left + crop_size, top + crop_size)).resize((300, 300))
 
 def get_settings():
     ref = db.collection("settings").document("preferences").get()
@@ -530,7 +526,7 @@ with tab1:
             if st.button("➕ Add Person", use_container_width=True):
                 if new_name and new_name not in people:
                     if img_file:
-                        st.session_state['crop_image'] = Image.open(img_file).convert("RGB")
+                        buf = io.BytesIO() Image.open(img_file).convert("RGB").save(buf, format="PNG") st.session_state['crop_image'] = buf.getvalue()
                         st.session_state['crop_new_person_name'] = new_name
                         st.session_state['crop_person'] = None
                         st.rerun()
