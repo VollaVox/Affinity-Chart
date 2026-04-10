@@ -456,6 +456,12 @@ with tab1:
             elif new_name in people:
                 st.warning("Already added!")
     st.markdown("---")
+    from streamlit_sortables import sort_items
+    sorted_people = sort_items(people, direction="vertical")
+    if sorted_people != people:
+        save_people(sorted_people)
+        st.rerun()
+    st.markdown("---")
     for i, person in enumerate(people):
         r1, r2, r3, r4 = st.columns([3, 2, 2, 1])
         r1.write(person)
