@@ -58,24 +58,30 @@ def save_people(people):
 def save_connections(connections):
     db.collection(GRAPH_TYPE).document("connections").set({"list": connections})
 
-def upload_to_storage(data, path, content_type):
+def upload_image(data, person, content_type):
+    path = f"friends/images/{person}"
     blob = bucket.blob(path)
     blob.upload_from_string(data, content_type=content_type)
     blob.make_public()
     url = blob.public_url + f"?t={int(time.time())}"
-    return url
+    st.session_state['image_urls'][person] = url
 
-def get_storage_url(path):
-    blob = bucket.blob(path)
-    if blob.exists():
-        blob.make_public()
-        return blob.public_url
-    return None
-
-def delete_from_storage(path):
+def delete_image(person):
+    path = f"friends/images/{person}"
     blob = bucket.blob(path)
     if blob.exists():
         blob.delete()
+    if person in st.session_state['image_urls']:
+        del st.session_state['image_urls'][person]
+
+def fetch_all_image_urls(people):
+    urls = {}
+    for person in people:
+        blob = bucket.blob(f"friends/images/{person}")
+        if blob.exists():
+            blob.make_public()
+            urls[person] = blob.public_url + f"?t={int(time.time())}"
+    return urls
 
 def get_settings():
     ref = db.collection("settings").document("preferences").get()
@@ -84,22 +90,22 @@ def get_settings():
 def save_settings(settings):
     db.collection("settings").document("preferences").set(settings)
 
-def refresh_image_urls(people):
-    urls = {}
-    for person in people:
-        path = f"friends/images/{person}"
-        blob = bucket.blob(path)
-        if blob.exists():
-            blob.make_public()
-            ts = st.session_state.get(f"img_ts_{person}", "0")
-            urls[person] = blob.public_url + f"?t={ts}"
-    return urls
-
+# ── session state init ────────────────────────────────────────────────────────
 if 'music_url' not in st.session_state:
-    st.session_state['music_url'] = get_storage_url("music/refugee_camp.mp3")
+    blob = bucket.blob("music/refugee_camp.mp3")
+    if blob.exists():
+        blob.make_public()
+        st.session_state['music_url'] = blob.public_url
+    else:
+        st.session_state['music_url'] = None
+
 if 'autoplay' not in st.session_state:
     prefs = get_settings()
     st.session_state['autoplay'] = prefs.get('autoplay', False)
+
+if 'image_urls' not in st.session_state:
+    people_init, _ = load_data()
+    st.session_state['image_urls'] = fetch_all_image_urls(people_init)
 
 REL_TYPES = {
     "Know each other": {"color": "#C8A020", "shape": "pentagon"},
@@ -130,7 +136,6 @@ def build_graph_html(people, connections, image_urls, project_id):
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#06091e;overflow:hidden;font-family:sans-serif}}
-canvas{{display:none}}
 svg{{width:100vw;height:100vh;display:block;user-select:none;-webkit-user-select:none}}
 .n-name{{fill:#a0c8ff;font-size:11px;text-anchor:middle;pointer-events:none}}
 .n-init{{fill:#6090e0;font-size:15px;font-weight:500;text-anchor:middle;dominant-baseline:middle;pointer-events:none}}
@@ -145,7 +150,7 @@ const PROJECT_ID = "{project_id}";
 const FS_URL = `https://firestore.googleapis.com/v1/projects/${{PROJECT_ID}}/databases/(default)/documents/positions/friends`;
 const W = window.innerWidth, H = window.innerHeight;
 const svgEl = document.getElementById("g");
-const svg = d3.select(svgEl).attr("viewBox", [0,0,W,H]);
+const svg = d3.select(svgEl).attr("viewBox",[0,0,W,H]);
 const defs = svg.append("defs");
 const container = svg.append("g");
 
@@ -156,138 +161,119 @@ let panStart=null;
 function applyTransform(){{
   container.attr("transform",`translate(${{tx}},${{ty}}) scale(${{scale}})`);
 }}
-
-function svgPoint(clientX, clientY){{
-  const rect = svgEl.getBoundingClientRect();
-  return [
-    (clientX - rect.left - tx) / scale,
-    (clientY - rect.top  - ty) / scale
-  ];
+function svgPoint(cx,cy){{
+  const r=svgEl.getBoundingClientRect();
+  return [(cx-r.left-tx)/scale,(cy-r.top-ty)/scale];
+}}
+function hitNode(cx,cy){{
+  const [x,y]=svgPoint(cx,cy);
+  return data.nodes.find(n=>Math.hypot(n.x-x,n.y-y)<35)||null;
 }}
 
-function hitNode(clientX, clientY){{
-  const [x,y] = svgPoint(clientX, clientY);
-  return data.nodes.find(n => Math.hypot(n.x-x, n.y-y) < 35) || null;
-}}
-
-svgEl.addEventListener("mousedown", e=>{{
-  const n = hitNode(e.clientX, e.clientY);
+svgEl.addEventListener("mousedown",e=>{{
+  const n=hitNode(e.clientX,e.clientY);
   if(n){{
-    dragNode = n;
-    const [x,y] = svgPoint(e.clientX, e.clientY);
-    dragOffX = x - n.x;
-    dragOffY = y - n.y;
-    svgEl.style.cursor = "grabbing";
-  }} else {{
-    panStart = {{cx:e.clientX, cy:e.clientY, tx, ty}};
-    svgEl.style.cursor = "grabbing";
+    dragNode=n;
+    const [x,y]=svgPoint(e.clientX,e.clientY);
+    dragOffX=x-n.x; dragOffY=y-n.y;
+    svgEl.style.cursor="grabbing";
+  }}else{{
+    panStart={{cx:e.clientX,cy:e.clientY,tx,ty}};
+    svgEl.style.cursor="grabbing";
   }}
   e.preventDefault();
 }});
-
-window.addEventListener("mousemove", e=>{{
+window.addEventListener("mousemove",e=>{{
   if(dragNode){{
-    const [x,y] = svgPoint(e.clientX, e.clientY);
-    dragNode.x = x - dragOffX;
-    dragNode.y = y - dragOffY;
+    const [x,y]=svgPoint(e.clientX,e.clientY);
+    dragNode.x=x-dragOffX; dragNode.y=y-dragOffY;
     tick();
-  }} else if(panStart){{
-    tx = panStart.tx + (e.clientX - panStart.cx);
-    ty = panStart.ty + (e.clientY - panStart.cy);
+  }}else if(panStart){{
+    tx=panStart.tx+(e.clientX-panStart.cx);
+    ty=panStart.ty+(e.clientY-panStart.cy);
     applyTransform();
   }}
 }});
-
-window.addEventListener("mouseup", e=>{{
-  if(dragNode){{ savePositions(); dragNode=null; }}
-  panStart = null;
-  svgEl.style.cursor = "default";
+window.addEventListener("mouseup",e=>{{
+  if(dragNode){{savePositions();dragNode=null;}}
+  panStart=null;
+  svgEl.style.cursor="default";
 }});
-
-svgEl.addEventListener("wheel", e=>{{
+svgEl.addEventListener("wheel",e=>{{
   e.preventDefault();
-  const rect = svgEl.getBoundingClientRect();
-  const mx = e.clientX - rect.left;
-  const my = e.clientY - rect.top;
-  const factor = e.deltaY < 0 ? 1.1 : 0.9;
-  const newScale = Math.min(10, Math.max(0.05, scale * factor));
-  tx = mx - (mx - tx) * (newScale/scale);
-  ty = my - (my - ty) * (newScale/scale);
-  scale = newScale;
-  applyTransform();
-}}, {{passive:false}});
+  const r=svgEl.getBoundingClientRect();
+  const mx=e.clientX-r.left, my=e.clientY-r.top;
+  const f=e.deltaY<0?1.1:0.9;
+  const ns=Math.min(10,Math.max(0.05,scale*f));
+  tx=mx-(mx-tx)*(ns/scale);
+  ty=my-(my-ty)*(ns/scale);
+  scale=ns; applyTransform();
+}},{{passive:false}});
 
-let lastTouchDist = null;
-svgEl.addEventListener("touchstart", e=>{{
+let lastTouchDist=null;
+svgEl.addEventListener("touchstart",e=>{{
   e.preventDefault();
   if(e.touches.length===1){{
-    const t = e.touches[0];
-    const n = hitNode(t.clientX, t.clientY);
+    const t=e.touches[0];
+    const n=hitNode(t.clientX,t.clientY);
     if(n){{
-      dragNode = n;
-      const [x,y] = svgPoint(t.clientX, t.clientY);
-      dragOffX = x - n.x;
-      dragOffY = y - n.y;
-    }} else {{
-      panStart = {{cx:t.clientX, cy:t.clientY, tx, ty}};
+      dragNode=n;
+      const [x,y]=svgPoint(t.clientX,t.clientY);
+      dragOffX=x-n.x; dragOffY=y-n.y;
+    }}else{{
+      panStart={{cx:t.clientX,cy:t.clientY,tx,ty}};
     }}
-  }} else if(e.touches.length===2){{
-    dragNode = null; panStart = null;
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    lastTouchDist = Math.hypot(dx,dy);
+  }}else if(e.touches.length===2){{
+    dragNode=null; panStart=null;
+    const dx=e.touches[0].clientX-e.touches[1].clientX;
+    const dy=e.touches[0].clientY-e.touches[1].clientY;
+    lastTouchDist=Math.hypot(dx,dy);
   }}
-}}, {{passive:false}});
-
-svgEl.addEventListener("touchmove", e=>{{
+}},{{passive:false}});
+svgEl.addEventListener("touchmove",e=>{{
   e.preventDefault();
   if(e.touches.length===1){{
-    const t = e.touches[0];
+    const t=e.touches[0];
     if(dragNode){{
-      const [x,y] = svgPoint(t.clientX, t.clientY);
-      dragNode.x = x - dragOffX;
-      dragNode.y = y - dragOffY;
+      const [x,y]=svgPoint(t.clientX,t.clientY);
+      dragNode.x=x-dragOffX; dragNode.y=y-dragOffY;
       tick();
-    }} else if(panStart){{
-      tx = panStart.tx + (t.clientX - panStart.cx);
-      ty = panStart.ty + (t.clientY - panStart.cy);
+    }}else if(panStart){{
+      tx=panStart.tx+(t.clientX-panStart.cx);
+      ty=panStart.ty+(t.clientY-panStart.cy);
       applyTransform();
     }}
-  }} else if(e.touches.length===2 && lastTouchDist){{
-    const dx = e.touches[0].clientX - e.touches[1].clientX;
-    const dy = e.touches[0].clientY - e.touches[1].clientY;
-    const dist = Math.hypot(dx,dy);
-    const mx = (e.touches[0].clientX + e.touches[1].clientX)/2;
-    const my = (e.touches[0].clientY + e.touches[1].clientY)/2;
-    const rect = svgEl.getBoundingClientRect();
-    const px = mx - rect.left, py = my - rect.top;
-    const factor = dist / lastTouchDist;
-    const newScale = Math.min(10, Math.max(0.05, scale * factor));
-    tx = px - (px - tx) * (newScale/scale);
-    ty = py - (py - ty) * (newScale/scale);
-    scale = newScale;
-    lastTouchDist = dist;
-    applyTransform();
+  }}else if(e.touches.length===2&&lastTouchDist){{
+    const dx=e.touches[0].clientX-e.touches[1].clientX;
+    const dy=e.touches[0].clientY-e.touches[1].clientY;
+    const dist=Math.hypot(dx,dy);
+    const mx=(e.touches[0].clientX+e.touches[1].clientX)/2;
+    const my=(e.touches[0].clientY+e.touches[1].clientY)/2;
+    const r=svgEl.getBoundingClientRect();
+    const px=mx-r.left, py=my-r.top;
+    const f=dist/lastTouchDist;
+    const ns=Math.min(10,Math.max(0.05,scale*f));
+    tx=px-(px-tx)*(ns/scale);
+    ty=py-(py-ty)*(ns/scale);
+    scale=ns; lastTouchDist=dist; applyTransform();
   }}
-}}, {{passive:false}});
-
-svgEl.addEventListener("touchend", e=>{{
-  if(dragNode){{ savePositions(); dragNode=null; }}
+}},{{passive:false}});
+svgEl.addEventListener("touchend",e=>{{
+  if(dragNode){{savePositions();dragNode=null;}}
   panStart=null; lastTouchDist=null;
 }});
 
 async function loadPositions(){{
   try{{
-    const res = await fetch(FS_URL);
+    const res=await fetch(FS_URL);
     if(!res.ok) return {{}};
-    const doc = await res.json();
-    return JSON.parse(doc.fields?.data?.stringValue || "{{}}");
-  }}catch(e){{ return {{}}; }}
+    const doc=await res.json();
+    return JSON.parse(doc.fields?.data?.stringValue||"{{}}");
+  }}catch(e){{return{{}};}}
 }}
-
 async function savePositions(){{
   const pos={{}};
-  data.nodes.forEach(n=>{{ pos[n.id]={{x:n.x,y:n.y}}; }});
+  data.nodes.forEach(n=>{{pos[n.id]={{x:n.x,y:n.y}};}});
   try{{
     await fetch(FS_URL+"?updateMask.fieldPaths=data",{{
       method:"PATCH",
@@ -300,18 +286,22 @@ async function savePositions(){{
 data.nodes.forEach(n=>{{
   const sid=n.id.replace(/[^a-zA-Z0-9]/g,"-");
   defs.append("clipPath").attr("id","clip-"+sid)
-    .append("circle").attr("r",28);
+    .append("circle").attr("r",28).attr("cx",0).attr("cy",0);
   if(n.image){{
     const pat=defs.append("pattern").attr("id","img-"+sid)
-      .attr("patternUnits","objectBoundingBox").attr("width",1).attr("height",1);
-    pat.append("image").attr("href",n.image)
+      .attr("patternUnits","userSpaceOnUse")
+      .attr("width",56).attr("height",56)
+      .attr("x",-28).attr("y",-28);
+    pat.append("image")
+      .attr("href",n.image)
+      .attr("x",0).attr("y",0)
       .attr("width",56).attr("height",56)
       .attr("preserveAspectRatio","xMidYMid slice");
   }}
 }});
 
 function drawIcon(g,shape,color){{
-  const s=16, dc="#06091e";
+  const s=16,dc="#06091e";
   if(shape==="pentagon"){{
     const pts=[...Array(5)].map((_,i)=>{{const a=(i*72-90)*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
     g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
@@ -356,21 +346,21 @@ function drawIcon(g,shape,color){{
   }}
 }}
 
-const eGrp=container.append("g"), iGrp=container.append("g"), nGrp=container.append("g");
-
+const eGrp=container.append("g"),iGrp=container.append("g"),nGrp=container.append("g");
 const edges=eGrp.selectAll("line").data(data.links).join("line")
   .attr("stroke",d=>d.color).attr("stroke-width",2).attr("stroke-opacity",0.6);
-
 const icons=iGrp.selectAll("g").data(data.links).join("g");
-icons.each(function(d){{ drawIcon(d3.select(this),d.shape,d.color); }});
-
+icons.each(function(d){{drawIcon(d3.select(this),d.shape,d.color);}});
 const nodeGroups=nGrp.selectAll("g").data(data.nodes).join("g");
 nodeGroups.append("circle").attr("r",33).attr("fill","none").attr("stroke","#1e3a80").attr("stroke-width",1.5).attr("opacity",0.6);
 nodeGroups.each(function(d){{
   const g=d3.select(this);
   const sid=d.id.replace(/[^a-zA-Z0-9]/g,"-");
   if(d.image){{
-    g.append("circle").attr("r",28).attr("fill",`url(#img-${{sid}})`).attr("stroke","#4a78c8").attr("stroke-width",2.5).attr("clip-path",`url(#clip-${{sid}})`);
+    g.append("circle").attr("r",28)
+      .attr("fill",`url(#img-${{sid)}}`)
+      .attr("stroke","#4a78c8").attr("stroke-width",2.5)
+      .attr("clip-path",`url(#clip-${{sid}})`);
   }}else{{
     g.append("circle").attr("r",28).attr("fill","#0e1c52").attr("stroke","#4a78c8").attr("stroke-width",2.5);
     g.append("text").attr("class","n-init").attr("dy","0.1em")
@@ -395,37 +385,29 @@ const sim=d3.forceSimulation(data.nodes)
   .on("tick",tick);
 
 async function init(){{
-  const savedPos = await loadPositions();
-  const hasSaved = Object.keys(savedPos).length > 0;
+  const savedPos=await loadPositions();
+  const hasSaved=Object.keys(savedPos).length>0;
   if(hasSaved){{
     data.nodes.forEach(n=>{{
-      if(savedPos[n.id]){{
-        n.x = savedPos[n.id].x;
-        n.y = savedPos[n.id].y;
-      }}else{{
-        n.x = W/2 + (Math.random()-0.5)*200;
-        n.y = H/2 + (Math.random()-0.5)*200;
-      }}
-      n.fx = n.x; n.fy = n.y;
+      if(savedPos[n.id]){{n.x=savedPos[n.id].x;n.y=savedPos[n.id].y;}}
+      else{{n.x=W/2+(Math.random()-0.5)*200;n.y=H/2+(Math.random()-0.5)*200;}}
+      n.fx=n.x;n.fy=n.y;
     }});
-    sim.alpha(0).stop();
-    tick();
+    sim.alpha(0).stop();tick();
   }}else{{
     sim.alpha(1).restart();
     setTimeout(()=>{{
-      data.nodes.forEach(n=>{{ n.fx=n.x; n.fy=n.y; }});
-      sim.stop();
-      savePositions();
+      data.nodes.forEach(n=>{{n.fx=n.x;n.fy=n.y;}});
+      sim.stop();savePositions();
     }},2500);
   }}
 }}
-
 init();
 </script>
 </body>
 </html>"""
 
-# ── UI ─────────────────────────────────────────────────────────────────────────
+# ── UI ────────────────────────────────────────────────────────────────────────
 music_url = st.session_state['music_url']
 autoplay = st.session_state['autoplay']
 if music_url:
@@ -447,7 +429,7 @@ st.markdown("<h2 style='padding-top:0.4rem;text-align:center'>⬡ AFFINITY CHART
 st.markdown("<hr style='margin:0.4rem 0'>", unsafe_allow_html=True)
 
 people, connections = load_data()
-image_urls = refresh_image_urls(people)
+image_urls = st.session_state['image_urls']
 
 components.html(build_graph_html(people, connections, image_urls, project_id), height=520, scrolling=False)
 
@@ -467,8 +449,7 @@ with tab1:
                 people.append(new_name)
                 save_people(people)
                 if img_file:
-                    upload_to_storage(img_file.read(), f"friends/images/{new_name}", img_file.type)
-                    st.session_state[f"img_ts_{new_name}"] = int(time.time())
+                    upload_image(img_file.read(), new_name, img_file.type)
                 st.rerun()
             elif new_name in people:
                 st.warning("Already added!")
@@ -478,22 +459,16 @@ with tab1:
         r1.write(person)
         img_upd = r2.file_uploader("", type=["jpg","jpeg","png"], key=f"upd_{i}", label_visibility="collapsed")
         if img_upd:
-            upload_to_storage(img_upd.read(), f"friends/images/{person}", img_upd.type)
-            st.session_state[f"img_ts_{person}"] = int(time.time())
+            upload_image(img_upd.read(), person, img_upd.type)
             st.rerun()
-        has_image = person in image_urls
-        if has_image:
+        if person in image_urls:
             if r3.button("🗑 Photo", key=f"rmp_{i}"):
-                delete_from_storage(f"friends/images/{person}")
-                if f"img_ts_{person}" in st.session_state:
-                    del st.session_state[f"img_ts_{person}"]
+                delete_image(person)
                 st.rerun()
         if r4.button("✕", key=f"del_{i}"):
             people.remove(person)
             connections = [c for c in connections if c["from"] != person and c["to"] != person]
-            delete_from_storage(f"friends/images/{person}")
-            if f"img_ts_{person}" in st.session_state:
-                del st.session_state[f"img_ts_{person}"]
+            delete_image(person)
             save_people(people)
             save_connections(connections)
             st.rerun()
@@ -539,8 +514,10 @@ with tab3:
     music_file = st.file_uploader("", type=["mp3"], key="music_up", label_visibility="collapsed")
     if music_file:
         with st.spinner("Uploading..."):
-            upload_to_storage(music_file.read(), "music/refugee_camp.mp3", "audio/mpeg")
-            st.session_state['music_url'] = get_storage_url("music/refugee_camp.mp3")
+            blob = bucket.blob("music/refugee_camp.mp3")
+            blob.upload_from_string(music_file.read(), content_type="audio/mpeg")
+            blob.make_public()
+            st.session_state['music_url'] = blob.public_url
         st.success("Music uploaded!")
     if music_url:
         st.success("✓ Music file is ready")
