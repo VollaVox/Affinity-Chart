@@ -462,11 +462,11 @@ with tab1:
         img_upd = r2.file_uploader("", type=["jpg","jpeg","png"], key=f"upd_{i}", label_visibility="collapsed")
         if img_upd:
             upload_image(img_upd.read(), person, img_upd.type)
-            st.rerun()
+            st.toast(f"✓ Photo updated for {person} — visible on next refresh")
         if person in image_urls:
             if r3.button("🗑 Photo", key=f"rmp_{i}"):
                 delete_image(person)
-                st.rerun()
+                st.toast(f"✓ Photo removed for {person}")
         if r4.button("✕", key=f"del_{i}"):
             people.remove(person)
             connections = [c for c in connections if c["from"] != person and c["to"] != person]
