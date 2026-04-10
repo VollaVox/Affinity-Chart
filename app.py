@@ -288,7 +288,8 @@ data.nodes.forEach(n=>{{
   defs.append("clipPath").attr("id","clip-"+sid)
     .append("circle").attr("r",28).attr("cx",0).attr("cy",0);
   if(n.image){{
-    const pat=defs.append("pattern").attr("id","img-"+sid)
+    const pat=defs.append("pattern")
+      .attr("id","img-"+sid)
       .attr("patternUnits","userSpaceOnUse")
       .attr("width",56).attr("height",56)
       .attr("x",-28).attr("y",-28);
@@ -358,9 +359,9 @@ nodeGroups.each(function(d){{
   const sid=d.id.replace(/[^a-zA-Z0-9]/g,"-");
   if(d.image){{
     g.append("circle").attr("r",28)
-      .attr("fill",`url(#img-${{sid)}}`)
+      .attr("fill","url(#img-"+sid+")")
       .attr("stroke","#4a78c8").attr("stroke-width",2.5)
-      .attr("clip-path",`url(#clip-${{sid}})`);
+      .attr("clip-path","url(#clip-"+sid+")");
   }}else{{
     g.append("circle").attr("r",28).attr("fill","#0e1c52").attr("stroke","#4a78c8").attr("stroke-width",2.5);
     g.append("text").attr("class","n-init").attr("dy","0.1em")
