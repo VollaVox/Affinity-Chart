@@ -2,6 +2,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore, storage
 import json
+import time
 import streamlit.components.v1 as components
 
 st.set_page_config(page_title="Affinity Chart", layout="wide", initial_sidebar_state="collapsed")
@@ -61,7 +62,8 @@ def upload_to_storage(data, path, content_type):
     blob = bucket.blob(path)
     blob.upload_from_string(data, content_type=content_type)
     blob.make_public()
-    return blob.public_url
+    url = blob.public_url + f"?t={int(time.time())}"
+    return url
 
 def get_storage_url(path):
     blob = bucket.blob(path)
@@ -74,13 +76,24 @@ def delete_from_storage(path):
     blob = bucket.blob(path)
     if blob.exists():
         blob.delete()
-        
+
 def get_settings():
     ref = db.collection("settings").document("preferences").get()
     return ref.to_dict() if ref.exists else {"autoplay": False}
 
 def save_settings(settings):
     db.collection("settings").document("preferences").set(settings)
+
+def refresh_image_urls(people):
+    urls = {}
+    for person in people:
+        path = f"friends/images/{person}"
+        blob = bucket.blob(path)
+        if blob.exists():
+            blob.make_public()
+            ts = st.session_state.get(f"img_ts_{person}", "0")
+            urls[person] = blob.public_url + f"?t={ts}"
+    return urls
 
 if 'music_url' not in st.session_state:
     st.session_state['music_url'] = get_storage_url("music/refugee_camp.mp3")
@@ -136,7 +149,6 @@ const svg = d3.select(svgEl).attr("viewBox", [0,0,W,H]);
 const defs = svg.append("defs");
 const container = svg.append("g");
 
-// ── zoom / pan ────────────────────────────────────────────────────────────────
 let tx=0, ty=0, scale=1;
 let dragNode=null, dragOffX=0, dragOffY=0;
 let panStart=null;
@@ -158,7 +170,6 @@ function hitNode(clientX, clientY){{
   return data.nodes.find(n => Math.hypot(n.x-x, n.y-y) < 35) || null;
 }}
 
-// mouse
 svgEl.addEventListener("mousedown", e=>{{
   const n = hitNode(e.clientX, e.clientY);
   if(n){{
@@ -177,8 +188,8 @@ svgEl.addEventListener("mousedown", e=>{{
 window.addEventListener("mousemove", e=>{{
   if(dragNode){{
     const [x,y] = svgPoint(e.clientX, e.clientY);
-    dragNode.x = dragNode.fx = x - dragOffX;
-    dragNode.y = dragNode.fy = y - dragOffY;
+    dragNode.x = x - dragOffX;
+    dragNode.y = y - dragOffY;
     tick();
   }} else if(panStart){{
     tx = panStart.tx + (e.clientX - panStart.cx);
@@ -193,7 +204,6 @@ window.addEventListener("mouseup", e=>{{
   svgEl.style.cursor = "default";
 }});
 
-// scroll to zoom
 svgEl.addEventListener("wheel", e=>{{
   e.preventDefault();
   const rect = svgEl.getBoundingClientRect();
@@ -207,7 +217,6 @@ svgEl.addEventListener("wheel", e=>{{
   applyTransform();
 }}, {{passive:false}});
 
-// touch
 let lastTouchDist = null;
 svgEl.addEventListener("touchstart", e=>{{
   e.preventDefault();
@@ -236,8 +245,8 @@ svgEl.addEventListener("touchmove", e=>{{
     const t = e.touches[0];
     if(dragNode){{
       const [x,y] = svgPoint(t.clientX, t.clientY);
-      dragNode.x = dragNode.fx = x - dragOffX;
-      dragNode.y = dragNode.fy = y - dragOffY;
+      dragNode.x = x - dragOffX;
+      dragNode.y = y - dragOffY;
       tick();
     }} else if(panStart){{
       tx = panStart.tx + (t.clientX - panStart.cx);
@@ -267,7 +276,6 @@ svgEl.addEventListener("touchend", e=>{{
   panStart=null; lastTouchDist=null;
 }});
 
-// ── firebase ──────────────────────────────────────────────────────────────────
 async function loadPositions(){{
   try{{
     const res = await fetch(FS_URL);
@@ -289,7 +297,6 @@ async function savePositions(){{
   }}catch(e){{}}
 }}
 
-// ── images ────────────────────────────────────────────────────────────────────
 data.nodes.forEach(n=>{{
   const sid=n.id.replace(/[^a-zA-Z0-9]/g,"-");
   defs.append("clipPath").attr("id","clip-"+sid)
@@ -303,7 +310,6 @@ data.nodes.forEach(n=>{{
   }}
 }});
 
-// ── icons ─────────────────────────────────────────────────────────────────────
 function drawIcon(g,shape,color){{
   const s=16, dc="#06091e";
   if(shape==="pentagon"){{
@@ -350,7 +356,6 @@ function drawIcon(g,shape,color){{
   }}
 }}
 
-// ── graph elements ────────────────────────────────────────────────────────────
 const eGrp=container.append("g"), iGrp=container.append("g"), nGrp=container.append("g");
 
 const edges=eGrp.selectAll("line").data(data.links).join("line")
@@ -382,7 +387,6 @@ function tick(){{
   nodeGroups.attr("transform",d=>`translate(${{d.x}},${{d.y}})`);
 }}
 
-// ── init ──────────────────────────────────────────────────────────────────────
 const sim=d3.forceSimulation(data.nodes)
   .force("link",d3.forceLink(data.links).id(d=>d.id).distance(180))
   .force("charge",d3.forceManyBody().strength(-320))
@@ -421,6 +425,7 @@ init();
 </body>
 </html>"""
 
+# ── UI ─────────────────────────────────────────────────────────────────────────
 music_url = st.session_state['music_url']
 autoplay = st.session_state['autoplay']
 if music_url:
@@ -442,11 +447,7 @@ st.markdown("<h2 style='padding-top:0.4rem;text-align:center'>⬡ AFFINITY CHART
 st.markdown("<hr style='margin:0.4rem 0'>", unsafe_allow_html=True)
 
 people, connections = load_data()
-image_urls = {}
-for person in people:
-    url = get_storage_url(f"friends/images/{person}")
-    if url:
-        image_urls[person] = url
+image_urls = refresh_image_urls(people)
 
 components.html(build_graph_html(people, connections, image_urls, project_id), height=520, scrolling=False)
 
@@ -467,6 +468,7 @@ with tab1:
                 save_people(people)
                 if img_file:
                     upload_to_storage(img_file.read(), f"friends/images/{new_name}", img_file.type)
+                    st.session_state[f"img_ts_{new_name}"] = int(time.time())
                 st.rerun()
             elif new_name in people:
                 st.warning("Already added!")
@@ -477,16 +479,21 @@ with tab1:
         img_upd = r2.file_uploader("", type=["jpg","jpeg","png"], key=f"upd_{i}", label_visibility="collapsed")
         if img_upd:
             upload_to_storage(img_upd.read(), f"friends/images/{person}", img_upd.type)
+            st.session_state[f"img_ts_{person}"] = int(time.time())
             st.rerun()
-        has_image = get_storage_url(f"friends/images/{person}") is not None
+        has_image = person in image_urls
         if has_image:
-            if r3.button("🗑 Remove photo", key=f"rmp_{i}"):
+            if r3.button("🗑 Photo", key=f"rmp_{i}"):
                 delete_from_storage(f"friends/images/{person}")
+                if f"img_ts_{person}" in st.session_state:
+                    del st.session_state[f"img_ts_{person}"]
                 st.rerun()
         if r4.button("✕", key=f"del_{i}"):
             people.remove(person)
             connections = [c for c in connections if c["from"] != person and c["to"] != person]
             delete_from_storage(f"friends/images/{person}")
+            if f"img_ts_{person}" in st.session_state:
+                del st.session_state[f"img_ts_{person}"]
             save_people(people)
             save_connections(connections)
             st.rerun()
