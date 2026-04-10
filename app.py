@@ -6,7 +6,6 @@ import time
 import io
 import streamlit.components.v1 as components
 from streamlit_sortables import sort_items
-from streamlit_cropper import st_cropper
 from PIL import Image
 
 st.set_page_config(page_title="Affinity Chart", layout="wide", initial_sidebar_state="collapsed")
@@ -100,6 +99,19 @@ def pil_to_bytes(img):
     img.save(buf, format="PNG")
     return buf.getvalue()
 
+def apply_crop(img, zoom, x_pct, y_pct):
+    w, h = img.size
+    crop_size = min(w, h) / zoom
+    cx = w * x_pct / 100
+    cy = h * y_pct / 100
+    cx = max(crop_size / 2, min(w - crop_size / 2, cx))
+    cy = max(crop_size / 2, min(h - crop_size / 2, cy))
+    left = int(cx - crop_size / 2)
+    top = int(cy - crop_size / 2)
+    right = int(cx + crop_size / 2)
+    bottom = int(cy + crop_size / 2)
+    return img.crop((left, top, right, bottom)).resize((300, 300))
+
 def get_settings():
     ref = db.collection("settings").document("preferences").get()
     return ref.to_dict() if ref.exists else {"autoplay": False}
@@ -124,7 +136,6 @@ if 'image_urls' not in st.session_state:
     people_init, _ = load_data()
     st.session_state['image_urls'] = fetch_all_image_urls(people_init)
 
-# crop workflow state
 if 'crop_person' not in st.session_state:
     st.session_state['crop_person'] = None
 if 'crop_image' not in st.session_state:
@@ -468,26 +479,30 @@ with tab1:
 
     # ── crop workflow ─────────────────────────────────────────────────────────
     if st.session_state['crop_image'] is not None:
-        person_label = st.session_state['crop_person'] or st.session_state['crop_new_person_name'] or "this person"
-        st.markdown(f"**Crop photo for {person_label}**")
-        st.caption("Drag the box to select your crop, then click Confirm.")
         img = st.session_state['crop_image']
-        cropped = st_cropper(
-            img,
-            realtime_update=True,
-            box_color="#4a78c8",
-            aspect_ratio=(1, 1),
-        )
-        col_confirm, col_cancel = st.columns([1, 1])
-        with col_confirm:
-            if st.button("✅ Confirm crop", use_container_width=True):
+        person_label = st.session_state['crop_person'] or st.session_state['crop_new_person_name'] or "person"
+        st.markdown(f"**Adjusting photo for {person_label}**")
+        st.caption("Use the sliders to zoom and position, then confirm.")
+
+        col_sliders, col_preview = st.columns([2, 1])
+        with col_sliders:
+            zoom = st.slider("Zoom", 1.0, 4.0, 1.0, 0.05, key="crop_zoom")
+            x_pct = st.slider("Move left / right", 0, 100, 50, 1, key="crop_x")
+            y_pct = st.slider("Move up / down", 0, 100, 50, 1, key="crop_y")
+        with col_preview:
+            st.caption("Preview")
+            preview = apply_crop(img, zoom, x_pct, y_pct)
+            st.image(preview, use_container_width=True)
+
+        cc, cx = st.columns([1, 1])
+        with cc:
+            if st.button("✅ Confirm", use_container_width=True):
+                cropped = apply_crop(img, zoom, x_pct, y_pct)
                 img_bytes = pil_to_bytes(cropped)
                 if st.session_state['crop_person']:
-                    # updating existing person
                     upload_image(img_bytes, st.session_state['crop_person'])
-                    st.toast(f"✓ Photo updated for {st.session_state['crop_person']} — visible on next refresh")
+                    st.toast(f"✓ Photo updated — visible on next refresh")
                 else:
-                    # adding new person
                     name = st.session_state['crop_new_person_name']
                     if name and name not in people:
                         people.append(name)
@@ -497,7 +512,7 @@ with tab1:
                 st.session_state['crop_person'] = None
                 st.session_state['crop_new_person_name'] = None
                 st.rerun()
-        with col_cancel:
+        with cx:
             if st.button("✕ Cancel", use_container_width=True):
                 st.session_state['crop_image'] = None
                 st.session_state['crop_person'] = None
@@ -505,7 +520,7 @@ with tab1:
                 st.rerun()
 
     else:
-        # ── normal add person UI ──────────────────────────────────────────────
+        # ── normal UI ─────────────────────────────────────────────────────────
         ca, cb = st.columns([3, 2])
         with ca:
             new_name = st.text_input("Name", placeholder="Enter name...")
@@ -515,7 +530,7 @@ with tab1:
             if st.button("➕ Add Person", use_container_width=True):
                 if new_name and new_name not in people:
                     if img_file:
-                        st.session_state['crop_image'] = Image.open(img_file)
+                        st.session_state['crop_image'] = Image.open(img_file).convert("RGB")
                         st.session_state['crop_new_person_name'] = new_name
                         st.session_state['crop_person'] = None
                         st.rerun()
@@ -538,7 +553,7 @@ with tab1:
             r1.write(person)
             img_upd = r2.file_uploader("", type=["jpg","jpeg","png"], key=f"upd_{i}", label_visibility="collapsed")
             if img_upd:
-                st.session_state['crop_image'] = Image.open(img_upd)
+                st.session_state['crop_image'] = Image.open(img_upd).convert("RGB")
                 st.session_state['crop_person'] = person
                 st.session_state['crop_new_person_name'] = None
                 st.rerun()
