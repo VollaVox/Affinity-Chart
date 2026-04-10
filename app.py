@@ -457,14 +457,19 @@ with tab1:
                 st.warning("Already added!")
     st.markdown("---")
     from streamlit_sortables import sort_items
-    sorted_people = sort_items(people, direction="vertical", custom_style={
-        "backgroundColor": "#0e1c52",
-        "color": "#80a8e8",
-        "border": "1px solid #2a4890",
-        "borderRadius": "3px",
-        "fontSize": "13px",
-        "letterSpacing": "1px",
-    })
+    st.markdown("""
+    <style>
+    .sortable-item {
+        background-color: #0e1c52 !important;
+        color: #80a8e8 !important;
+        border: 1px solid #2a4890 !important;
+        border-radius: 3px !important;
+        font-size: 13px !important;
+        letter-spacing: 1px !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    sorted_people = sort_items(people, direction="vertical")
     if sorted_people != people:
         save_people(sorted_people)
         st.rerun()
