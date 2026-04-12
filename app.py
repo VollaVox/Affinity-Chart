@@ -145,13 +145,15 @@ if 'crop_new_person_name' not in st.session_state:
     st.session_state['crop_new_person_name'] = None
 
 REL_TYPES = {
-    "Know each other": {"color": "#C8A020", "shape": "pentagon"},
-    "Friends":         {"color": "#3db832", "shape": "square"},
-    "Great friends":   {"color": "#2080d8", "shape": "circle"},
-    "Best friends":    {"color": "#7050c8", "shape": "hexagon"},
-    "In relationship": {"color": "#b02880", "shape": "heart_rel"},
-    "Married":         {"color": "#e855a0", "shape": "heart_married"},
-    "Don't speak":     {"color": "#d02020", "shape": "triangle"},
+    "Know each other":      {"color": "#8A8030", "shape": "pentagon"},
+    "Friends":              {"color": "#3db832", "shape": "square"},
+    "Great friends":        {"color": "#2080d8", "shape": "circle"},
+    "Current best friends": {"color": "#FFD700", "shape": "star"},
+    "Drifted Close Friends":{"color": "#7050c8", "shape": "hexagon"},
+    "In relationship":      {"color": "#b02880", "shape": "heart_rel"},
+    "Married":              {"color": "#e855a0", "shape": "heart_married"},
+    "Work friend":          {"color": "#E87820", "shape": "trapezoid"},
+    "Don't speak":          {"color": "#d02020", "shape": "triangle"},
 }
 
 def build_graph_html(people, connections, image_urls, project_id):
@@ -165,6 +167,10 @@ def build_graph_html(people, connections, image_urls, project_id):
             "relationship": rel, "color": cfg["color"], "shape": cfg["shape"],
         })
     data_json = json.dumps({"nodes": nodes, "links": links})
+    legend_json = json.dumps([
+        {"label": k, "color": v["color"], "shape": v["shape"]}
+        for k, v in REL_TYPES.items()
+    ])
 
     return f"""<!DOCTYPE html>
 <html>
@@ -176,13 +182,26 @@ body{{background:#06091e;overflow:hidden;font-family:sans-serif}}
 svg{{width:100vw;height:100vh;display:block;user-select:none;-webkit-user-select:none}}
 .n-name{{fill:#a0c8ff;font-size:11px;text-anchor:middle;pointer-events:none}}
 .n-init{{fill:#6090e0;font-size:15px;font-weight:500;text-anchor:middle;dominant-baseline:middle;pointer-events:none}}
+#legend-wrap{{position:fixed;top:12px;right:12px;z-index:100;display:flex;flex-direction:column;align-items:flex-end}}
+#legend-btn{{background:#0e1c52;border:1px solid #2a4890;color:#80a8e8;padding:5px 12px;border-radius:3px;cursor:pointer;font-size:11px;letter-spacing:2px;font-family:sans-serif}}
+#legend-btn:hover{{background:#1a2e70;color:#c0d8ff}}
+#legend-panel{{display:none;margin-top:4px;background:#080e28cc;border:1px solid #2a4890;border-radius:6px;padding:10px 12px;backdrop-filter:blur(4px)}}
+.l-row{{display:flex;align-items:center;gap:8px;padding:3px 0}}
+.l-label{{color:#80a8e8;font-size:11px;letter-spacing:0.5px;white-space:nowrap}}
 </style>
 </head>
 <body>
 <svg id="g"></svg>
+
+<div id="legend-wrap">
+  <button id="legend-btn" onclick="toggleLegend()">⬡ KEY</button>
+  <div id="legend-panel" id="legend-panel"></div>
+</div>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <script>
 const data = {data_json};
+const legendData = {legend_json};
 const PROJECT_ID = "{project_id}";
 const FS_URL = `https://firestore.googleapis.com/v1/projects/${{PROJECT_ID}}/databases/(default)/documents/positions/friends`;
 const W = window.innerWidth, H = window.innerHeight;
@@ -356,6 +375,17 @@ function drawIcon(g,shape,color){{
     g.append("rect").attr("x",-s*0.55).attr("y",-s*0.22).attr("width",s*0.4).attr("height",s*0.4).attr("fill",dc).attr("rx",0.8);
     g.append("rect").attr("x",s*0.15).attr("y",-s*0.22).attr("width",s*0.4).attr("height",s*0.4).attr("fill",dc).attr("rx",0.8);
     g.append("path").attr("d",`M ${{-s*0.55}} ${{s*0.28}} Q 0 ${{s*0.72}} ${{s*0.55}} ${{s*0.28}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.14).attr("stroke-linecap","round");
+  }}else if(shape==="star"){{
+    const pts=[];
+    for(let i=0;i<10;i++){{
+      const r=i%2===0?s:s*0.45;
+      const a=(i*Math.PI/5)-Math.PI/2;
+      pts.push([r*Math.cos(a),r*Math.sin(a)]);
+    }}
+    g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+    g.append("path").attr("d",`M ${{-s*0.44}} ${{-s*0.09}} Q ${{-s*0.28}} ${{-s*0.31}} ${{-s*0.125}} ${{-s*0.09}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.156).attr("stroke-linecap","round");
+    g.append("path").attr("d",`M ${{s*0.125}} ${{-s*0.09}} Q ${{s*0.28}} ${{-s*0.31}} ${{s*0.44}} ${{-s*0.09}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.156).attr("stroke-linecap","round");
+    g.append("path").attr("d",`M ${{-s*0.44}} ${{s*0.19}} Q 0 ${{s*0.625}} ${{s*0.44}} ${{s*0.19}} Q 0 ${{s*0.28}} ${{-s*0.44}} ${{s*0.19}}Z`).attr("fill",dc);
   }}else if(shape==="hexagon"){{
     const pts=[...Array(6)].map((_,i)=>{{const a=i*60*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
     g.append("polygon").attr("points",pts.map(p=>p.join(",")).join(" ")).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
@@ -375,6 +405,11 @@ function drawIcon(g,shape,color){{
       g.append("rect").attr("x",s*0.175).attr("y",-s*0.44).attr("width",s*0.375).attr("height",s*0.375).attr("fill",dc).attr("rx",0.8);
       g.append("path").attr("d",`M ${{-s*0.52}} ${{s*0.03}} Q 0 ${{s*0.39}} ${{s*0.52}} ${{s*0.03}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
     }}
+  }}else if(shape==="trapezoid"){{
+    g.append("polygon").attr("points",`${{-s*0.625}},${{-s*0.8125}} ${{s*0.625}},${{-s*0.8125}} ${{s}},${{s*0.8125}} ${{-s}},${{s*0.8125}}`).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
+    g.append("rect").attr("x",-s*0.5).attr("y",-s*0.3125).attr("width",s*0.344).attr("height",s*0.344).attr("fill",dc).attr("rx",0.8);
+    g.append("rect").attr("x",s*0.156).attr("y",-s*0.3125).attr("width",s*0.344).attr("height",s*0.344).attr("fill",dc).attr("rx",0.8);
+    g.append("path").attr("d",`M ${{-s*0.469}} ${{s*0.219}} Q 0 ${{s*0.594}} ${{s*0.469}} ${{s*0.219}}`).attr("fill","none").attr("stroke",dc).attr("stroke-width",s*0.125).attr("stroke-linecap","round");
   }}else if(shape==="triangle"){{
     const h=s*1.2;
     g.append("polygon").attr("points",`0,${{-h}} ${{h}},${{h*0.7}} ${{-h}},${{h*0.7}}`).attr("fill",color).attr("stroke",dc).attr("stroke-width",2);
@@ -384,6 +419,67 @@ function drawIcon(g,shape,color){{
   }}
 }}
 
+// ── legend ────────────────────────────────────────────────────────────────────
+function drawLegendIcon(shape, color){{
+  const s=10, dc="#06091e";
+  const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
+  svg.setAttribute("viewBox","-14 -14 28 28");
+  svg.setAttribute("width","28");
+  svg.setAttribute("height","28");
+  const g = document.createElementNS("http://www.w3.org/2000/svg","g");
+
+  function el(tag,attrs){{
+    const e=document.createElementNS("http://www.w3.org/2000/svg",tag);
+    Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v));
+    return e;
+  }}
+
+  if(shape==="pentagon"){{
+    const pts=[...Array(5)].map((_,i)=>{{const a=(i*72-90)*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
+    g.appendChild(el("polygon",{{points:pts.map(p=>p.join(",")).join(" "),fill:color,stroke:dc,"stroke-width":1.5}}));
+  }}else if(shape==="square"){{
+    g.appendChild(el("rect",{{x:-s,y:-s,width:s*2,height:s*2,fill:color,stroke:dc,"stroke-width":1.5,rx:1.5}}));
+  }}else if(shape==="circle"){{
+    g.appendChild(el("circle",{{cx:0,cy:0,r:s,fill:color,stroke:dc,"stroke-width":1.5}}));
+  }}else if(shape==="star"){{
+    const pts=[];
+    for(let i=0;i<10;i++){{const r=i%2===0?s:s*0.45;const a=(i*Math.PI/5)-Math.PI/2;pts.push([r*Math.cos(a),r*Math.sin(a)]);}}
+    g.appendChild(el("polygon",{{points:pts.map(p=>p.join(",")).join(" "),fill:color,stroke:dc,"stroke-width":1.5}}));
+  }}else if(shape==="hexagon"){{
+    const pts=[...Array(6)].map((_,i)=>{{const a=i*60*Math.PI/180;return[s*Math.cos(a),s*Math.sin(a)]}});
+    g.appendChild(el("polygon",{{points:pts.map(p=>p.join(",")).join(" "),fill:color,stroke:dc,"stroke-width":1.5}}));
+  }}else if(shape==="heart_rel"||shape==="heart_married"){{
+    g.appendChild(el("path",{{d:`M 0 ${{s*0.625}} C ${{-s}} 0 ${{-s*1.25}} ${{-s*0.625}} ${{-s*0.594}} ${{-s*0.906}} C ${{-s*0.25}} ${{-s*1.0625}} 0 ${{-s*0.6875}} 0 ${{-s*0.5625}} C 0 ${{-s*0.6875}} ${{s*0.25}} ${{-s*1.0625}} ${{s*0.594}} ${{-s*0.906}} C ${{s*1.25}} ${{-s*0.625}} ${{s}} 0 0 ${{s*0.625}} Z`,fill:color,stroke:dc,"stroke-width":1.5}}));
+  }}else if(shape==="trapezoid"){{
+    g.appendChild(el("polygon",{{points:`${{-s*0.625}},${{-s*0.8}} ${{s*0.625}},${{-s*0.8}} ${{s}},${{s*0.8}} ${{-s}},${{s*0.8}}`,fill:color,stroke:dc,"stroke-width":1.5}}));
+  }}else if(shape==="triangle"){{
+    const h=s*1.2;
+    g.appendChild(el("polygon",{{points:`0,${{-h}} ${{h}},${{h*0.7}} ${{-h}},${{h*0.7}}`,fill:color,stroke:dc,"stroke-width":1.5}}));
+  }}
+  svg.appendChild(g);
+  return svg;
+}}
+
+const panel = document.getElementById("legend-panel");
+legendData.forEach(item=>{{
+  const row = document.createElement("div");
+  row.className = "l-row";
+  row.appendChild(drawLegendIcon(item.shape, item.color));
+  const lbl = document.createElement("span");
+  lbl.className = "l-label";
+  lbl.textContent = item.label;
+  row.appendChild(lbl);
+  panel.appendChild(row);
+}});
+
+let legendOpen = false;
+function toggleLegend(){{
+  legendOpen = !legendOpen;
+  panel.style.display = legendOpen ? "block" : "none";
+  document.getElementById("legend-btn").textContent = legendOpen ? "✕ KEY" : "⬡ KEY";
+}}
+
+// ── graph ─────────────────────────────────────────────────────────────────────
 const eGrp=container.append("g"),iGrp=container.append("g"),nGrp=container.append("g");
 const edges=eGrp.selectAll("line").data(data.links).join("line")
   .attr("stroke",d=>d.color).attr("stroke-width",2).attr("stroke-opacity",0.6);
@@ -521,7 +617,6 @@ with tab1:
                 st.rerun()
 
     else:
-        # ── normal UI ─────────────────────────────────────────────────────────
         ca, cb = st.columns([3, 2])
         with ca:
             new_name = st.text_input("Name", placeholder="Enter name...")
