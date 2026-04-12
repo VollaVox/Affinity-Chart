@@ -120,7 +120,6 @@ def get_settings():
 def save_settings(settings):
     db.collection("settings").document("preferences").set(settings)
 
-# ── session state init ────────────────────────────────────────────────────────
 if 'music_url' not in st.session_state:
     blob = bucket.blob("music/refugee_camp.mp3")
     if blob.exists():
@@ -145,16 +144,57 @@ if 'crop_new_person_name' not in st.session_state:
     st.session_state['crop_new_person_name'] = None
 
 REL_TYPES = {
-    "Know each other":      {"color": "#8A8030", "shape": "pentagon"},
-    "Friends":              {"color": "#3db832", "shape": "square"},
-    "Great friends":        {"color": "#2080d8", "shape": "circle"},
-    "Current best friends": {"color": "#FFD700", "shape": "star"},
-    "Drifted Close Friends":{"color": "#7050c8", "shape": "hexagon"},
-    "In relationship":      {"color": "#b02880", "shape": "heart_rel"},
-    "Married":              {"color": "#e855a0", "shape": "heart_married"},
-    "Work friend":          {"color": "#E87820", "shape": "trapezoid"},
-    "Don't speak":          {"color": "#d02020", "shape": "triangle"},
+    "Know each other":       {"color": "#8A8030", "shape": "pentagon"},
+    "Friends":               {"color": "#3db832", "shape": "square"},
+    "Great friends":         {"color": "#2080d8", "shape": "circle"},
+    "Current best friends":  {"color": "#FFD700", "shape": "star"},
+    "Drifted Close Friends": {"color": "#7050c8", "shape": "hexagon"},
+    "In relationship":       {"color": "#b02880", "shape": "heart_rel"},
+    "Married":               {"color": "#e855a0", "shape": "heart_married"},
+    "Work friend":           {"color": "#E87820", "shape": "trapezoid"},
+    "Don't speak":           {"color": "#d02020", "shape": "triangle"},
 }
+
+def make_legend_icon_svg(shape, color):
+    s = 9
+    dc = "#06091e"
+    vb = '-15 -15 30 30'
+    if shape == "pentagon":
+        import math
+        pts = " ".join(f"{s*math.cos((i*72-90)*math.pi/180):.2f},{s*math.sin((i*72-90)*math.pi/180):.2f}" for i in range(5))
+        inner = f'<polygon points="{pts}" fill="{color}" stroke="{dc}" stroke-width="1.5"/>'
+    elif shape == "square":
+        inner = f'<rect x="{-s}" y="{-s}" width="{s*2}" height="{s*2}" fill="{color}" stroke="{dc}" stroke-width="1.5" rx="1.5"/>'
+    elif shape == "circle":
+        inner = f'<circle cx="0" cy="0" r="{s}" fill="{color}" stroke="{dc}" stroke-width="1.5"/>'
+    elif shape == "star":
+        import math
+        pts = " ".join(f"{(s if i%2==0 else s*0.45)*math.cos((i*math.pi/5)-math.pi/2):.2f},{(s if i%2==0 else s*0.45)*math.sin((i*math.pi/5)-math.pi/2):.2f}" for i in range(10))
+        inner = f'<polygon points="{pts}" fill="{color}" stroke="{dc}" stroke-width="1.5"/>'
+    elif shape == "hexagon":
+        import math
+        pts = " ".join(f"{s*math.cos(i*60*math.pi/180):.2f},{s*math.sin(i*60*math.pi/180):.2f}" for i in range(6))
+        inner = f'<polygon points="{pts}" fill="{color}" stroke="{dc}" stroke-width="1.5"/>'
+    elif shape in ("heart_rel", "heart_married"):
+        inner = f'<path d="M0,{s*0.625:.2f} C{-s},0 {-s*1.25:.2f},{-s*0.625:.2f} {-s*0.594:.2f},{-s*0.906:.2f} C{-s*0.25:.2f},{-s*1.0625:.2f} 0,{-s*0.6875:.2f} 0,{-s*0.5625:.2f} C0,{-s*0.6875:.2f} {s*0.25:.2f},{-s*1.0625:.2f} {s*0.594:.2f},{-s*0.906:.2f} C{s*1.25:.2f},{-s*0.625:.2f} {s},0 0,{s*0.625:.2f}Z" fill="{color}" stroke="{dc}" stroke-width="1.5"/>'
+    elif shape == "trapezoid":
+        inner = f'<polygon points="{-s*0.625:.2f},{-s*0.8:.2f} {s*0.625:.2f},{-s*0.8:.2f} {s},{s*0.8:.2f} {-s},{s*0.8:.2f}" fill="{color}" stroke="{dc}" stroke-width="1.5"/>'
+    elif shape == "triangle":
+        h = s * 1.2
+        inner = f'<polygon points="0,{-h:.2f} {h:.2f},{h*0.7:.2f} {-h:.2f},{h*0.7:.2f}" fill="{color}" stroke="{dc}" stroke-width="1.5"/>'
+    else:
+        inner = ""
+    return f'<svg viewBox="{vb}" width="28" height="28" style="flex-shrink:0;display:block">{inner}</svg>'
+
+def build_legend_html():
+    rows = ""
+    for label, cfg in REL_TYPES.items():
+        icon = make_legend_icon_svg(cfg["shape"], cfg["color"])
+        rows += f'''<div style="display:flex;align-items:center;gap:10px;padding:4px 0;border-bottom:1px solid #1a2a50">
+            {icon}
+            <span style="color:#80a8e8;font-size:12px;font-family:sans-serif;white-space:nowrap">{label}</span>
+        </div>'''
+    return rows
 
 def build_graph_html(people, connections, image_urls, project_id):
     nodes = [{"id": p, "image": image_urls.get(p, "")} for p in people]
@@ -167,10 +207,7 @@ def build_graph_html(people, connections, image_urls, project_id):
             "relationship": rel, "color": cfg["color"], "shape": cfg["shape"],
         })
     data_json = json.dumps({"nodes": nodes, "links": links})
-    legend_json = json.dumps([
-        {"label": k, "color": v["color"], "shape": v["shape"]}
-        for k, v in REL_TYPES.items()
-    ])
+    legend_rows = build_legend_html()
 
     return f"""<!DOCTYPE html>
 <html>
@@ -179,21 +216,13 @@ def build_graph_html(people, connections, image_urls, project_id):
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:#06091e;overflow:hidden;font-family:sans-serif}}
-svg{{width:100vw;height:100vh;display:block;user-select:none;-webkit-user-select:none}}
+svg#g{{width:100vw;height:100vh;display:block;user-select:none;-webkit-user-select:none}}
 .n-name{{fill:#a0c8ff;font-size:11px;text-anchor:middle;pointer-events:none}}
 .n-init{{fill:#6090e0;font-size:15px;font-weight:500;text-anchor:middle;dominant-baseline:middle;pointer-events:none}}
-#legend-wrap{{position:fixed;top:12px;right:12px;z-index:100;pointer-events:none;display:flex;flex-direction:column;align-items:flex-end}}
-#legend-btn{{pointer-events:all;background:#0e1c52;border:1px solid #2a4890;color:#80a8e8;padding:5px 12px;border-radius:3px;cursor:pointer;font-size:11px;letter-spacing:2px;font-family:sans-serif}}
-#legend-btn:hover{{background:#1a2e70;color:#c0d8ff}}
-#legend-panel{{pointer-events:all;display:none;margin-top:4px;background:#080e28ee;border:1px solid #2a4890;border-radius:6px;padding:10px 14px;min-width:210px}}
-.l-row{{display:flex;align-items:center;gap:10px;padding:4px 0}}
-.l-label{{color:#80a8e8;font-size:11px;letter-spacing:0.5px;white-space:nowrap;font-family:sans-serif}}
 #legend-wrap{{position:fixed;top:12px;right:12px;z-index:100;display:flex;flex-direction:column;align-items:flex-end}}
-#legend-btn{{background:#0e1c52;border:1px solid #2a4890;color:#80a8e8;padding:5px 12px;border-radius:3px;cursor:pointer;font-size:11px;letter-spacing:2px;font-family:sans-serif}}
+#legend-btn{{background:#0e1c52;border:1px solid #2a4890;color:#80a8e8;padding:6px 14px;border-radius:3px;cursor:pointer;font-size:11px;letter-spacing:2px;font-family:sans-serif}}
 #legend-btn:hover{{background:#1a2e70;color:#c0d8ff}}
-#legend-panel{{display:none;margin-top:4px;background:#080e28cc;border:1px solid #2a4890;border-radius:6px;padding:10px 12px;backdrop-filter:blur(4px)}}
-.l-row{{display:flex;align-items:center;gap:8px;padding:3px 0}}
-.l-label{{color:#80a8e8;font-size:11px;letter-spacing:0.5px;white-space:nowrap}}
+#legend-panel{{display:none;margin-top:6px;background:#080e28;border:1px solid #2a4890;border-radius:6px;padding:10px 14px;min-width:220px}}
 </style>
 </head>
 <body>
@@ -201,13 +230,14 @@ svg{{width:100vw;height:100vh;display:block;user-select:none;-webkit-user-select
 
 <div id="legend-wrap">
   <button id="legend-btn" onclick="toggleLegend()">⬡ KEY</button>
-  <div id="legend-panel" id="legend-panel"></div>
+  <div id="legend-panel">
+    {legend_rows}
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
 <script>
 const data = {data_json};
-const legendData = {legend_json};
 const PROJECT_ID = "{project_id}";
 const FS_URL = `https://firestore.googleapis.com/v1/projects/${{PROJECT_ID}}/databases/(default)/documents/positions/friends`;
 const W = window.innerWidth, H = window.innerHeight;
@@ -233,6 +263,7 @@ function hitNode(cx,cy){{
 }}
 
 svgEl.addEventListener("mousedown",e=>{{
+  if(e.target.closest("#legend-wrap")) return;
   const n=hitNode(e.clientX,e.clientY);
   if(n){{
     dragNode=n;
@@ -262,6 +293,7 @@ window.addEventListener("mouseup",e=>{{
   svgEl.style.cursor="default";
 }});
 svgEl.addEventListener("wheel",e=>{{
+  if(e.target.closest("#legend-wrap")) return;
   e.preventDefault();
   const r=svgEl.getBoundingClientRect();
   const mx=e.clientX-r.left, my=e.clientY-r.top;
@@ -274,6 +306,7 @@ svgEl.addEventListener("wheel",e=>{{
 
 let lastTouchDist=null;
 svgEl.addEventListener("touchstart",e=>{{
+  if(e.target.closest("#legend-wrap")) return;
   e.preventDefault();
   if(e.touches.length===1){{
     const t=e.touches[0];
@@ -293,6 +326,7 @@ svgEl.addEventListener("touchstart",e=>{{
   }}
 }},{{passive:false}});
 svgEl.addEventListener("touchmove",e=>{{
+  if(e.target.closest("#legend-wrap")) return;
   e.preventDefault();
   if(e.touches.length===1){{
     const t=e.touches[0];
@@ -324,6 +358,13 @@ svgEl.addEventListener("touchend",e=>{{
   if(dragNode){{savePositions();dragNode=null;}}
   panStart=null; lastTouchDist=null;
 }});
+
+let legendOpen=false;
+function toggleLegend(){{
+  legendOpen=!legendOpen;
+  document.getElementById("legend-panel").style.display=legendOpen?"block":"none";
+  document.getElementById("legend-btn").textContent=legendOpen?"✕ KEY":"⬡ KEY";
+}}
 
 async function loadPositions(){{
   try{{
@@ -425,65 +466,6 @@ function drawIcon(g,shape,color){{
   }}
 }}
 
-// ── legend ────────────────────────────────────────────────────────────────────
-function drawLegendIcon(shape, color){{
-  const s=9, dc="#06091e";
-  const ns="http://www.w3.org/2000/svg";
-  const svg=document.createElementNS(ns,"svg");
-  svg.setAttribute("viewBox","-15 -15 30 30");
-  svg.setAttribute("width","30");
-  svg.setAttribute("height","30");
-  svg.style.flexShrink="0";
-  function mk(tag,attrs){{
-    const e=document.createElementNS(ns,tag);
-    Object.entries(attrs).forEach(([k,v])=>e.setAttribute(k,v));
-    return e;
-  }}
-  if(shape==="pentagon"){{
-    const pts=[...Array(5)].map((_,i)=>{{const a=(i*72-90)*Math.PI/180;return s*Math.cos(a)+","+s*Math.sin(a)}});
-    svg.appendChild(mk("polygon",{{points:pts.join(" "),fill:color,stroke:dc,"stroke-width":1.5}}));
-  }}else if(shape==="square"){{
-    svg.appendChild(mk("rect",{{x:-s,y:-s,width:s*2,height:s*2,fill:color,stroke:dc,"stroke-width":1.5,rx:1.5}}));
-  }}else if(shape==="circle"){{
-    svg.appendChild(mk("circle",{{cx:0,cy:0,r:s,fill:color,stroke:dc,"stroke-width":1.5}}));
-  }}else if(shape==="star"){{
-    const pts=[];
-    for(let i=0;i<10;i++){{const r=i%2===0?s:s*0.45;const a=(i*Math.PI/5)-Math.PI/2;pts.push(r*Math.cos(a)+","+r*Math.sin(a));}}
-    svg.appendChild(mk("polygon",{{points:pts.join(" "),fill:color,stroke:dc,"stroke-width":1.5}}));
-  }}else if(shape==="hexagon"){{
-    const pts=[...Array(6)].map((_,i)=>{{const a=i*60*Math.PI/180;return s*Math.cos(a)+","+s*Math.sin(a)}});
-    svg.appendChild(mk("polygon",{{points:pts.join(" "),fill:color,stroke:dc,"stroke-width":1.5}}));
-  }}else if(shape==="heart_rel"||shape==="heart_married"){{
-    svg.appendChild(mk("path",{{d:`M0,${{s*0.625}} C${{-s}},0 ${{-s*1.25}},${{-s*0.625}} ${{-s*0.594}},${{-s*0.906}} C${{-s*0.25}},${{-s*1.0625}} 0,${{-s*0.6875}} 0,${{-s*0.5625}} C0,${{-s*0.6875}} ${{s*0.25}},${{-s*1.0625}} ${{s*0.594}},${{-s*0.906}} C${{s*1.25}},${{-s*0.625}} ${{s}},0 0,${{s*0.625}}Z`,fill:color,stroke:dc,"stroke-width":1.5}}));
-  }}else if(shape==="trapezoid"){{
-    svg.appendChild(mk("polygon",{{points:`${{-s*0.625}},${{-s*0.8}} ${{s*0.625}},${{-s*0.8}} ${{s}},${{s*0.8}} ${{-s}},${{s*0.8}}`,fill:color,stroke:dc,"stroke-width":1.5}}));
-  }}else if(shape==="triangle"){{
-    const h=s*1.2;
-    svg.appendChild(mk("polygon",{{points:`0,${{-h}} ${{h}},${{h*0.7}} ${{-h}},${{h*0.7}}`,fill:color,stroke:dc,"stroke-width":1.5}}));
-  }}
-  return svg;
-}}
-
-const panel=document.getElementById("legend-panel");
-legendData.forEach(item=>{{
-  const row=document.createElement("div");
-  row.className="l-row";
-  row.appendChild(drawLegendIcon(item.shape,item.color));
-  const lbl=document.createElement("span");
-  lbl.className="l-label";
-  lbl.textContent=item.label;
-  row.appendChild(lbl);
-  panel.appendChild(row);
-}});
-
-let legendOpen=false;
-function toggleLegend(){{
-  legendOpen=!legendOpen;
-  panel.style.display=legendOpen?"block":"none";
-  document.getElementById("legend-btn").textContent=legendOpen?"✕ KEY":"⬡ KEY";
-}}
-
-// ── graph ─────────────────────────────────────────────────────────────────────
 const eGrp=container.append("g"),iGrp=container.append("g"),nGrp=container.append("g");
 const edges=eGrp.selectAll("line").data(data.links).join("line")
   .attr("stroke",d=>d.color).attr("stroke-width",2).attr("stroke-opacity",0.6);
@@ -577,14 +559,11 @@ st.markdown("<hr style='margin:0.4rem 0'>", unsafe_allow_html=True)
 tab1, tab2, tab3 = st.tabs(["👤  People", "🔗  Connections", "⚙️  Settings"])
 
 with tab1:
-
-    # ── crop workflow ─────────────────────────────────────────────────────────
     if st.session_state['crop_image'] is not None:
         img = Image.open(io.BytesIO(st.session_state['crop_image']))
         person_label = st.session_state['crop_person'] or st.session_state['crop_new_person_name'] or "person"
         st.markdown(f"**Adjusting photo for {person_label}**")
         st.caption("Zoom in first, then use the position sliders to frame the shot.")
-
         col_sliders, col_preview = st.columns([2, 1])
         with col_sliders:
             zoom = st.slider("Zoom", 1.0, 4.0, 1.0, 0.05, key="crop_zoom")
@@ -594,7 +573,6 @@ with tab1:
             st.caption("Preview")
             preview = apply_crop(img, zoom, x_pct, y_pct)
             st.image(preview, use_container_width=True)
-
         cc, cx = st.columns([1, 1])
         with cc:
             if st.button("✅ Confirm", use_container_width=True):
@@ -619,7 +597,6 @@ with tab1:
                 st.session_state['crop_person'] = None
                 st.session_state['crop_new_person_name'] = None
                 st.rerun()
-
     else:
         ca, cb = st.columns([3, 2])
         with ca:
@@ -640,14 +617,12 @@ with tab1:
                         st.rerun()
                 elif new_name in people:
                     st.warning("Already added!")
-
         st.markdown("---")
         sorted_people = sort_items(people, direction="vertical")
         if sorted_people != people:
             save_people(sorted_people)
             st.rerun()
         st.markdown("---")
-
         for i, person in enumerate(people):
             r1, r2, r3, r4 = st.columns([3, 2, 2, 1])
             r1.write(person)
